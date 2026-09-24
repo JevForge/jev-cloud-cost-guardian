@@ -1,6 +1,6 @@
 {
   "name": "jev-cloud-cost-guardian",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Evaluate cloud spend against a budget and gate CI with Jev (approve, warn, block, or review).",
   "private": true,
   "type": "module",
