@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "catalog:from-infracost": "node scripts/generate-pricing-catalog.mjs",
     "all": "npm run typecheck && npm run test:coverage && npm run build"
   },
   "keywords": [

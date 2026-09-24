@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.9.0]
+
+### Added
+
+* `npm run catalog:from-infracost` (`scripts/generate-pricing-catalog.mjs`) to seed a Terraform pricing catalog from Infracost JSON.
+
 ## [0.8.0]
 
 ### Added
