@@ -1,5 +1,6 @@
 import type { EnvironmentName } from '../schemas/enums.js';
 import { parseCost, toMonthly } from '../utils/money.js';
+import { fetchWithRetries } from '../utils/retry.js';
 import { safeError } from '../utils/sanitize.js';
 import { makeLine } from './line.js';
 import type { CollectResult } from './types.js';
@@ -108,7 +109,7 @@ export async function fetchAzureToken(
   timeoutMs: number,
 ): Promise<string> {
   assertAzureIds(credentials);
-  const response = await fetchImpl(
+  const response = await fetchWithRetries(
     `https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`,
     {
       method: 'POST',
@@ -121,6 +122,7 @@ export async function fetchAzureToken(
       }),
       signal: AbortSignal.timeout(timeoutMs),
     },
+    { fetchImpl },
   );
   if (!response.ok) {
     throw new Error(`Azure token request failed with HTTP ${response.status}: ${await readError(response)}`);
@@ -155,15 +157,19 @@ export async function collectAzureBilling(options: AzureCollectOptions): Promise
   while (url) {
     pages += 1;
     if (pages > 10) throw new Error('Azure Cost Management pagination exceeded 10 pages');
-    const response = await fetchImpl(url, {
-      method: pages === 1 ? 'POST' : 'GET',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
+    const response = await fetchWithRetries(
+      url,
+      {
+        method: pages === 1 ? 'POST' : 'GET',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: pages === 1 ? JSON.stringify(query) : undefined,
+        signal: AbortSignal.timeout(options.timeoutMs),
       },
-      body: pages === 1 ? JSON.stringify(query) : undefined,
-      signal: AbortSignal.timeout(options.timeoutMs),
-    });
+      { fetchImpl },
+    );
     if (!response.ok) {
       throw new Error(`Azure Cost Management HTTP ${response.status}: ${await readError(response)}`);
     }
