@@ -2,6 +2,7 @@ import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { EnvironmentName } from '../schemas/enums.js';
 import { parseCost, toMonthly } from '../utils/money.js';
+import { fetchWithRetries } from '../utils/retry.js';
 import { safeError } from '../utils/sanitize.js';
 import { makeLine } from './line.js';
 import type { CollectResult } from './types.js';
@@ -55,15 +56,19 @@ export async function exchangeGcpServiceAccount(
   ].join('.');
   const signature = createSign('RSA-SHA256').update(unsigned).sign(account.private_key);
   const assertion = `${unsigned}.${base64url(signature)}`;
-  const response = await fetchImpl('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion,
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const response = await fetchWithRetries(
+    'https://oauth2.googleapis.com/token',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    },
+    { fetchImpl },
+  );
   if (!response.ok) {
     throw new Error(`GCP token exchange failed with HTTP ${response.status}: ${safeError(await response.text())}`);
   }
@@ -170,7 +175,7 @@ export async function collectGcpBilling(options: {
 }): Promise<CollectResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const query = billingQuery(options.target);
-  const response = await fetchImpl(
+  const response = await fetchWithRetries(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${options.target.projectId}/queries`,
     {
       method: 'POST',
@@ -191,6 +196,7 @@ export async function collectGcpBilling(options: {
       }),
       signal: AbortSignal.timeout(options.timeoutMs),
     },
+    { fetchImpl },
   );
   if (!response.ok) {
     throw new Error(`GCP BigQuery HTTP ${response.status}: ${safeError(await response.text())}`);

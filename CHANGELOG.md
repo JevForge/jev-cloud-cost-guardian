@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.11.0]
+
+### Added
+
+* Connector retries with exponential backoff for AWS/Azure/GCP on 429/5xx/network errors (auth 401/403 fails immediately).
+
 ## [0.10.0]
 
 ### Added

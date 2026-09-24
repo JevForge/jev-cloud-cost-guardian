@@ -35670,6 +35670,63 @@ var init_line = __esm({
   }
 });
 
+// src/utils/retry.ts
+function isRetryableStatus(status) {
+  return status === 429 || status >= 500;
+}
+function isRetryableError(error2) {
+  if (!error2 || typeof error2 !== "object") return false;
+  const err = error2;
+  if (err.name === "AbortError" || err.name === "TimeoutError") return true;
+  if (err.code === "ECONNRESET" || err.code === "ETIMEDOUT" || err.code === "ENOTFOUND") return true;
+  const status = err.$metadata?.httpStatusCode ?? err.statusCode;
+  if (typeof status === "number") return isRetryableStatus(status);
+  return false;
+}
+async function withRetries(operation2, options = {}) {
+  const attempts = options.attempts ?? DEFAULT_ATTEMPTS;
+  const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
+  const sleep2 = options.sleep ?? ((ms) => new Promise((resolve4) => setTimeout(resolve4, ms)));
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation2();
+    } catch (error2) {
+      lastError = error2;
+      if (attempt >= attempts || !isRetryableError(error2)) throw error2;
+      await sleep2(baseDelayMs * 2 ** (attempt - 1));
+    }
+  }
+  throw lastError;
+}
+async function fetchWithRetries(input, init, options = {}) {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const attempts = options.attempts ?? DEFAULT_ATTEMPTS;
+  const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
+  const sleep2 = options.sleep ?? ((ms) => new Promise((resolve4) => setTimeout(resolve4, ms)));
+  let lastResponse;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await fetchImpl(input, init);
+    lastResponse = response;
+    if (response.status === 401 || response.status === 403) return response;
+    if (isRetryableStatus(response.status)) {
+      if (attempt >= attempts) return response;
+      await sleep2(baseDelayMs * 2 ** (attempt - 1));
+      continue;
+    }
+    return response;
+  }
+  return lastResponse;
+}
+var DEFAULT_ATTEMPTS, DEFAULT_BASE_DELAY_MS;
+var init_retry = __esm({
+  "src/utils/retry.ts"() {
+    "use strict";
+    DEFAULT_ATTEMPTS = 3;
+    DEFAULT_BASE_DELAY_MS = 200;
+  }
+});
+
 // src/collectors/kubernetes.ts
 var kubernetes_exports = {};
 __export(kubernetes_exports, {
@@ -38207,7 +38264,7 @@ var init_checksum = __esm({
 
 // node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/retry.js
 var getRetryConfiguration, resolveRetryRuntimeConfig;
-var init_retry = __esm({
+var init_retry2 = __esm({
   "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/retry.js"() {
     getRetryConfiguration = (runtimeConfig) => {
       return {
@@ -38232,7 +38289,7 @@ var getDefaultExtensionConfiguration, getDefaultClientConfiguration, resolveDefa
 var init_defaultExtensionConfiguration = __esm({
   "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/defaultExtensionConfiguration.js"() {
     init_checksum();
-    init_retry();
+    init_retry2();
     getDefaultExtensionConfiguration = (runtimeConfig) => {
       return Object.assign(getChecksumConfiguration(runtimeConfig), getRetryConfiguration(runtimeConfig));
     };
@@ -38528,7 +38585,7 @@ var init_client2 = __esm({
     init_exceptions();
     init_defaultExtensionConfiguration();
     init_checksum();
-    init_retry();
+    init_retry2();
     init_get_array_if_single_item();
     init_get_value_from_text_node();
     init_is_serializable_header_value();
@@ -46944,7 +47001,7 @@ __export(retry_exports, {
   retryMiddlewareOptions: () => retryMiddlewareOptions
 });
 var retryMiddleware, getRetryPlugin;
-var init_retry2 = __esm({
+var init_retry3 = __esm({
   "node_modules/@smithy/core/dist-es/submodules/retry/index.js"() {
     init_isStreamingPayload();
     init_retryMiddleware();
@@ -46982,7 +47039,7 @@ function setFeature2(context2, feature, value) {
 }
 var init_setFeature = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js"() {
-    init_retry2();
+    init_retry3();
     Retry.v2026 ||= typeof process === "object" && process.env?.AWS_NEW_RETRIES_2026 === "true";
   }
 });
@@ -48196,7 +48253,7 @@ async function checkFeatures(context2, config2, args) {
 var ACCOUNT_ID_ENDPOINT_REGEX;
 var init_check_features = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-user-agent/check-features.js"() {
-    init_retry2();
+    init_retry3();
     init_setFeature();
     ACCOUNT_ID_ENDPOINT_REGEX = /\d{12}\.ddb/;
   }
@@ -57634,7 +57691,7 @@ var init_runtimeConfig = __esm({
     init_httpAuthSchemes2();
     init_client2();
     init_config2();
-    init_retry2();
+    init_retry3();
     init_serde();
     import_node_http_handler = __toESM(require_dist_cjs5());
     init_runtimeConfig_shared();
@@ -57742,7 +57799,7 @@ var init_SSOOIDCClient = __esm({
     init_config2();
     init_endpoints();
     init_protocols();
-    init_retry2();
+    init_retry3();
     init_schema();
     init_httpAuthSchemeProvider();
     init_EndpointParameters();
@@ -58501,7 +58558,7 @@ var init_runtimeConfig2 = __esm({
     init_httpAuthSchemes2();
     init_client2();
     init_config2();
-    init_retry2();
+    init_retry3();
     init_serde();
     import_node_http_handler2 = __toESM(require_dist_cjs5());
     init_runtimeConfig_shared2();
@@ -58609,7 +58666,7 @@ var init_SSOClient = __esm({
     init_config2();
     init_endpoints();
     init_protocols();
-    init_retry2();
+    init_retry3();
     init_schema();
     init_httpAuthSchemeProvider2();
     init_EndpointParameters2();
@@ -59849,7 +59906,7 @@ var init_runtimeConfig3 = __esm({
     init_dist_es();
     init_client2();
     init_config2();
-    init_retry2();
+    init_retry3();
     init_serde();
     import_node_http_handler3 = __toESM(require_dist_cjs5());
     init_runtimeConfig_shared3();
@@ -59975,7 +60032,7 @@ var init_STSClient = __esm({
     init_config2();
     init_endpoints();
     init_protocols();
-    init_retry2();
+    init_retry3();
     init_schema();
     init_httpAuthSchemeProvider3();
     init_EndpointParameters3();
@@ -60903,7 +60960,7 @@ var init_runtimeConfig4 = __esm({
     init_httpAuthSchemes2();
     init_client2();
     init_config2();
-    init_retry2();
+    init_retry3();
     init_serde();
     import_node_http_handler4 = __toESM(require_dist_cjs5());
     init_runtimeConfig_shared4();
@@ -61011,7 +61068,7 @@ var init_SigninClient = __esm({
     init_config2();
     init_endpoints();
     init_protocols();
-    init_retry2();
+    init_retry3();
     init_schema();
     init_httpAuthSchemeProvider4();
     init_EndpointParameters4();
@@ -61973,7 +62030,7 @@ var require_dist_cjs16 = __commonJS({
     var { resolveDefaultsModeConfig: resolveDefaultsModeConfig2, loadConfig: loadConfig2, NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS: NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS2, NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS: NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS2, NODE_REGION_CONFIG_OPTIONS: NODE_REGION_CONFIG_OPTIONS2, NODE_REGION_CONFIG_FILE_OPTIONS: NODE_REGION_CONFIG_FILE_OPTIONS2, resolveRegionConfig: resolveRegionConfig2 } = (init_config2(), __toCommonJS(config_exports));
     var { BinaryDecisionDiagram: BinaryDecisionDiagram2, EndpointCache: EndpointCache2, decideEndpoint: decideEndpoint2, customEndpointFunctions: customEndpointFunctions2, resolveEndpointConfig: resolveEndpointConfig2, getEndpointPlugin: getEndpointPlugin2 } = (init_endpoints(), __toCommonJS(endpoints_exports));
     var { parseUrl: parseUrl2, getHttpHandlerExtensionConfiguration: getHttpHandlerExtensionConfiguration2, resolveHttpHandlerRuntimeConfig: resolveHttpHandlerRuntimeConfig2, getContentLengthPlugin: getContentLengthPlugin2 } = (init_protocols(), __toCommonJS(protocols_exports));
-    var { DEFAULT_RETRY_MODE: DEFAULT_RETRY_MODE2, NODE_RETRY_MODE_CONFIG_OPTIONS: NODE_RETRY_MODE_CONFIG_OPTIONS2, NODE_MAX_ATTEMPT_CONFIG_OPTIONS: NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, resolveRetryConfig: resolveRetryConfig2, getRetryPlugin: getRetryPlugin2 } = (init_retry2(), __toCommonJS(retry_exports));
+    var { DEFAULT_RETRY_MODE: DEFAULT_RETRY_MODE2, NODE_RETRY_MODE_CONFIG_OPTIONS: NODE_RETRY_MODE_CONFIG_OPTIONS2, NODE_MAX_ATTEMPT_CONFIG_OPTIONS: NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, resolveRetryConfig: resolveRetryConfig2, getRetryPlugin: getRetryPlugin2 } = (init_retry3(), __toCommonJS(retry_exports));
     var { TypeRegistry: TypeRegistry2, getSchemaSerdePlugin: getSchemaSerdePlugin2 } = (init_schema(), __toCommonJS(schema_exports));
     var { resolveAwsSdkSigV4Config: resolveAwsSdkSigV4Config2, AwsSdkSigV4Signer: AwsSdkSigV4Signer2, NODE_AUTH_SCHEME_PREFERENCE_OPTIONS: NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2 } = (init_httpAuthSchemes2(), __toCommonJS(httpAuthSchemes_exports));
     var { defaultProvider } = require_dist_cjs15();
@@ -66437,13 +66494,15 @@ function createAwsCostClient(window2) {
   const client = new import_client_cost_explorer.CostExplorerClient({ region: "us-east-1" });
   return {
     async getCostAndUsage() {
-      const response = await client.send(
-        new import_client_cost_explorer.GetCostAndUsageCommand({
-          TimePeriod: { Start: window2.start, End: window2.end },
-          Granularity: "MONTHLY",
-          Metrics: ["UnblendedCost"],
-          GroupBy: [{ Type: "DIMENSION", Key: "SERVICE" }]
-        })
+      const response = await withRetries(
+        () => client.send(
+          new import_client_cost_explorer.GetCostAndUsageCommand({
+            TimePeriod: { Start: window2.start, End: window2.end },
+            Granularity: "MONTHLY",
+            Metrics: ["UnblendedCost"],
+            GroupBy: [{ Type: "DIMENSION", Key: "SERVICE" }]
+          })
+        )
       );
       return {
         ResultsByTime: response.ResultsByTime?.map((period) => ({
@@ -66466,12 +66525,14 @@ function createAwsCostClient(window2) {
       };
     },
     async getCostForecast() {
-      const response = await client.send(
-        new import_client_cost_explorer.GetCostForecastCommand({
-          TimePeriod: { Start: window2.start, End: window2.end },
-          Granularity: "MONTHLY",
-          Metric: "UNBLENDED_COST"
-        })
+      const response = await withRetries(
+        () => client.send(
+          new import_client_cost_explorer.GetCostForecastCommand({
+            TimePeriod: { Start: window2.start, End: window2.end },
+            Granularity: "MONTHLY",
+            Metric: "UNBLENDED_COST"
+          })
+        )
       );
       return {
         Total: { Amount: response.Total?.Amount, Unit: response.Total?.Unit },
@@ -66487,6 +66548,7 @@ var init_aws_client = __esm({
   "src/collectors/aws-client.ts"() {
     "use strict";
     import_client_cost_explorer = __toESM(require_dist_cjs16(), 1);
+    init_retry();
   }
 });
 
@@ -67609,6 +67671,7 @@ async function collectAwsBilling(options) {
 
 // src/collectors/azure-billing.ts
 init_money();
+init_retry();
 init_sanitize();
 init_line();
 var UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -67676,7 +67739,7 @@ async function readError(response) {
 }
 async function fetchAzureToken(credentials, fetchImpl, timeoutMs) {
   assertAzureIds(credentials);
-  const response = await fetchImpl(
+  const response = await fetchWithRetries(
     `https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`,
     {
       method: "POST",
@@ -67688,7 +67751,8 @@ async function fetchAzureToken(credentials, fetchImpl, timeoutMs) {
         grant_type: "client_credentials"
       }),
       signal: AbortSignal.timeout(timeoutMs)
-    }
+    },
+    { fetchImpl }
   );
   if (!response.ok) {
     throw new Error(`Azure token request failed with HTTP ${response.status}: ${await readError(response)}`);
@@ -67720,15 +67784,19 @@ async function collectAzureBilling(options) {
   while (url) {
     pages += 1;
     if (pages > 10) throw new Error("Azure Cost Management pagination exceeded 10 pages");
-    const response = await fetchImpl(url, {
-      method: pages === 1 ? "POST" : "GET",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json"
+    const response = await fetchWithRetries(
+      url,
+      {
+        method: pages === 1 ? "POST" : "GET",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: pages === 1 ? JSON.stringify(query) : void 0,
+        signal: AbortSignal.timeout(options.timeoutMs)
       },
-      body: pages === 1 ? JSON.stringify(query) : void 0,
-      signal: AbortSignal.timeout(options.timeoutMs)
-    });
+      { fetchImpl }
+    );
     if (!response.ok) {
       throw new Error(`Azure Cost Management HTTP ${response.status}: ${await readError(response)}`);
     }
@@ -67750,6 +67818,7 @@ async function collectAzureBilling(options) {
 var import_node_crypto2 = require("node:crypto");
 var import_node_fs3 = require("node:fs");
 init_money();
+init_retry();
 init_sanitize();
 init_line();
 var PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
@@ -67782,15 +67851,19 @@ async function exchangeGcpServiceAccount(account, fetchImpl, timeoutMs) {
   ].join(".");
   const signature = (0, import_node_crypto2.createSign)("RSA-SHA256").update(unsigned).sign(account.private_key);
   const assertion = `${unsigned}.${base64url(signature)}`;
-  const response = await fetchImpl("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion
-    }),
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+  const response = await fetchWithRetries(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    },
+    { fetchImpl }
+  );
   if (!response.ok) {
     throw new Error(`GCP token exchange failed with HTTP ${response.status}: ${safeError(await response.text())}`);
   }
@@ -67859,7 +67932,7 @@ function billingQuery(target) {
 async function collectGcpBilling(options) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const query = billingQuery(options.target);
-  const response = await fetchImpl(
+  const response = await fetchWithRetries(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${options.target.projectId}/queries`,
     {
       method: "POST",
@@ -67879,7 +67952,8 @@ async function collectGcpBilling(options) {
         timeoutMs: options.timeoutMs
       }),
       signal: AbortSignal.timeout(options.timeoutMs)
-    }
+    },
+    { fetchImpl }
   );
   if (!response.ok) {
     throw new Error(`GCP BigQuery HTTP ${response.status}: ${safeError(await response.text())}`);
