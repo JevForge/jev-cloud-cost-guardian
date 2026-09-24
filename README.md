@@ -185,6 +185,8 @@ More samples: [`examples/basic.yml`](examples/basic.yml), [`examples/pr-gate.yml
 | Input | Required | Default | Description |
 | ----- | -------- | ------- | ----------- |
 | `budget_monthly` | yes\* | | Monthly budget (\*or set in `.jev/config.yml`) |
+| `baseline_path` | no | | Explicit baseline file (`baseline_monthly` or baseline lines) |
+| `require_baseline` | no | `false` | Fail when projected scope has no baseline |
 | `currency` | no | `USD` | Budget currency |
 | `environment` | no | `production` | `production` / `staging` / `development` / `sandbox` / `other` |
 | `budget_scope` | no | `projected` | `projected` or `delta` |

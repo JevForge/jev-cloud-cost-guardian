@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+
+* Explicit `baseline_path` input/config and `require_baseline` gate for projected scope.
+* Reason codes `EXPLICIT_BASELINE` and `BASELINE_FROM_BILLING` when a baseline is present.
+
 ## [0.3.0]
 
 ### Added

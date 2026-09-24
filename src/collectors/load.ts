@@ -30,6 +30,8 @@ export interface LoadSourcesRequest {
   fxRates: Record<string, number>;
   estimatesPath?: string;
   estimatesDocument?: unknown;
+  baselinePath?: string;
+  requireBaseline?: boolean;
   infracostPath?: string;
   terraformPlanPath?: string;
   pricingCatalogPath?: string;
@@ -86,6 +88,34 @@ export async function loadCostReport(request: LoadSourcesRequest): Promise<CostR
         document: request.estimatesDocument,
       }),
     );
+  }
+
+  const baselineText = readOptional(request.workspace, request.baselinePath, 'baseline');
+  if (baselineText) {
+    const parsed = parseNormalizedDocument({
+      environment: request.environment,
+      currency: request.currency,
+      text: baselineText,
+    });
+    const baselineOnly = parsed.lines
+      .filter(line => line.change === 'baseline' && line.monthly_cost != null)
+      .map(line => ({
+        ...line,
+        address: line.address.startsWith('baseline:explicit')
+          ? line.address
+          : `baseline:explicit:${line.address}`,
+        source: 'normalized' as const,
+      }));
+    if (!baselineOnly.length) {
+      throw new Error('baseline_path must include baseline_monthly or at least one baseline cost line');
+    }
+    results.push({
+      lines: baselineOnly,
+      warnings: [
+        ...parsed.warnings,
+        `Loaded explicit baseline from ${request.baselinePath} (${baselineOnly.length} line(s)).`,
+      ],
+    });
   }
 
   const infracost = readOptional(request.workspace, request.infracostPath, 'infracost');
@@ -198,7 +228,7 @@ export async function loadCostReport(request: LoadSourcesRequest): Promise<CostR
     );
   }
 
-  return aggregateCosts({
+  const report = aggregateCosts({
     lines,
     warnings,
     currency: request.currency,
@@ -211,4 +241,14 @@ export async function loadCostReport(request: LoadSourcesRequest): Promise<CostR
     budget_scope: request.budgetScope,
     fx_rates: request.fxRates,
   });
+  if (
+    request.requireBaseline &&
+    request.budgetScope === 'projected' &&
+    !report.baseline_known
+  ) {
+    throw new Error(
+      'require_baseline is true and budget_scope is projected, but no baseline was found. Pass baseline_path or a billing/estimate baseline source.',
+    );
+  }
+  return report;
 }

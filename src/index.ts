@@ -85,6 +85,8 @@ async function main(): Promise<void> {
     fxRates,
     estimatesPath,
     estimatesDocument: estimatesJson ? (JSON.parse(estimatesJson) as unknown) : undefined,
+    baselinePath: pickString(core.getInput('baseline_path'), config.baseline_path),
+    requireBaseline: pickBoolean(core.getInput('require_baseline'), config.require_baseline, false),
     infracostPath: pickString(core.getInput('infracost_path'), config.infracost_path),
     terraformPlanPath: pickString(core.getInput('terraform_plan_path'), config.terraform_plan_path),
     pricingCatalogPath: pickString(core.getInput('pricing_catalog_path'), config.pricing_catalog_path),

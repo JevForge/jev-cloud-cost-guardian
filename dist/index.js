@@ -28052,6 +28052,8 @@ var init_enums = __esm({
       "HIGH_CONCENTRATION",
       "UNPRICED_RESOURCES",
       "MISSING_BASELINE",
+      "EXPLICIT_BASELINE",
+      "BASELINE_FROM_BILLING",
       "UNCERTAIN_ESTIMATE",
       "PROD_ENVIRONMENT",
       "NON_PROD_ENVIRONMENT",
@@ -67260,6 +67262,7 @@ var GuardianConfigSchema = external_exports.object({
   allow_unpriced: external_exports.boolean().optional(),
   allow_partial: external_exports.boolean().optional(),
   allow_missing_baseline: external_exports.boolean().optional(),
+  require_baseline: external_exports.boolean().optional(),
   normalize_to_monthly: external_exports.boolean().optional(),
   comment_on_github: external_exports.boolean().optional(),
   apply_labels: external_exports.boolean().optional(),
@@ -67270,6 +67273,7 @@ var GuardianConfigSchema = external_exports.object({
   include_aws_forecast: external_exports.boolean().optional(),
   fx_rates: external_exports.record(external_exports.number().positive()).optional(),
   estimates_path: external_exports.string().optional(),
+  baseline_path: external_exports.string().optional(),
   infracost_path: external_exports.string().optional(),
   terraform_plan_path: external_exports.string().optional(),
   pricing_catalog_path: external_exports.string().optional(),
@@ -67408,8 +67412,26 @@ function aggregateCosts(input) {
     );
   }
   const baselineLines = lines.filter((line) => line.change === "baseline" && line.monthly_cost != null);
-  const baseline_known = baselineLines.length > 0;
-  const baseline_monthly = baseline_known ? roundMoney(baselineLines.reduce((sum, line) => sum + (line.monthly_cost ?? 0), 0)) : null;
+  const explicitBaselines = baselineLines.filter((line) => line.address.startsWith("baseline:explicit"));
+  const billingBaselineLines = baselineLines.filter((line) => BILLING_SOURCES.includes(line.source));
+  const estimateBaselines = baselineLines.filter(
+    (line) => !line.address.startsWith("baseline:explicit") && !BILLING_SOURCES.includes(line.source)
+  );
+  let effectiveBaselines = baselineLines;
+  let baseline_origin = null;
+  if (explicitBaselines.length) {
+    effectiveBaselines = explicitBaselines;
+    baseline_origin = "explicit";
+    if (billingBaselineLines.length || estimateBaselines.length) {
+      warnings.push("Explicit baseline_path supersedes other baseline sources for the budget comparison.");
+    }
+  } else if (billingBaselineLines.length) {
+    baseline_origin = "billing";
+  } else if (estimateBaselines.length) {
+    baseline_origin = "estimate";
+  }
+  const baseline_known = effectiveBaselines.length > 0;
+  const baseline_monthly = baseline_known ? roundMoney(effectiveBaselines.reduce((sum, line) => sum + (line.monthly_cost ?? 0), 0)) : null;
   const delta_monthly = roundMoney(
     lines.filter((line) => DELTA_CHANGES.has(line.change) && line.monthly_cost != null).reduce((sum, line) => sum + (line.monthly_cost ?? 0), 0)
   );
@@ -67442,6 +67464,7 @@ function aggregateCosts(input) {
     partial_count: lines.filter((line) => line.partial).length,
     sources,
     baseline_known,
+    baseline_origin,
     converted,
     warnings
   };
@@ -68183,6 +68206,29 @@ async function loadCostReport(request) {
       })
     );
   }
+  const baselineText = readOptional(request.workspace, request.baselinePath, "baseline");
+  if (baselineText) {
+    const parsed = parseNormalizedDocument({
+      environment: request.environment,
+      currency: request.currency,
+      text: baselineText
+    });
+    const baselineOnly = parsed.lines.filter((line) => line.change === "baseline" && line.monthly_cost != null).map((line) => ({
+      ...line,
+      address: line.address.startsWith("baseline:explicit") ? line.address : `baseline:explicit:${line.address}`,
+      source: "normalized"
+    }));
+    if (!baselineOnly.length) {
+      throw new Error("baseline_path must include baseline_monthly or at least one baseline cost line");
+    }
+    results.push({
+      lines: baselineOnly,
+      warnings: [
+        ...parsed.warnings,
+        `Loaded explicit baseline from ${request.baselinePath} (${baselineOnly.length} line(s)).`
+      ]
+    });
+  }
   const infracost = readOptional(request.workspace, request.infracostPath, "infracost");
   if (infracost) results.push(parseInfracostText(infracost, request.environment, request.currency));
   const plan = readOptional(request.workspace, request.terraformPlanPath, "terraform plan");
@@ -68280,7 +68326,7 @@ async function loadCostReport(request) {
       `Applied budget rule ${resolved.rule_name ?? "matched-rule"} (${resolved.monthly} ${request.currency}/month).`
     );
   }
-  return aggregateCosts({
+  const report = aggregateCosts({
     lines,
     warnings,
     currency: request.currency,
@@ -68293,6 +68339,12 @@ async function loadCostReport(request) {
     budget_scope: request.budgetScope,
     fx_rates: request.fxRates
   });
+  if (request.requireBaseline && request.budgetScope === "projected" && !report.baseline_known) {
+    throw new Error(
+      "require_baseline is true and budget_scope is projected, but no baseline was found. Pass baseline_path or a billing/estimate baseline source."
+    );
+  }
+  return report;
 }
 
 // src/github/outputs.ts
@@ -68376,6 +68428,8 @@ function factualReasonCodes(report) {
   if (report.delta_monthly > 0) codes.push("NEW_SPEND");
   if (report.unpriced_count > 0) codes.push("UNPRICED_RESOURCES");
   if (!report.baseline_known) codes.push("MISSING_BASELINE");
+  else if (report.baseline_origin === "explicit") codes.push("EXPLICIT_BASELINE");
+  else if (report.baseline_origin === "billing") codes.push("BASELINE_FROM_BILLING");
   if (report.partial_count > 0) codes.push("UNCERTAIN_ESTIMATE");
   codes.push(report.environment === "production" ? "PROD_ENVIRONMENT" : "NON_PROD_ENVIRONMENT");
   if (report.sources.some((source) => source === "aws-cost-explorer" || source === "azure-cost-management" || source === "gcp-bigquery-billing" || source === "kubecost")) {
@@ -83824,6 +83878,8 @@ async function main() {
     fxRates,
     estimatesPath,
     estimatesDocument: estimatesJson ? JSON.parse(estimatesJson) : void 0,
+    baselinePath: pickString(core.getInput("baseline_path"), config2.baseline_path),
+    requireBaseline: pickBoolean(core.getInput("require_baseline"), config2.require_baseline, false),
     infracostPath: pickString(core.getInput("infracost_path"), config2.infracost_path),
     terraformPlanPath: pickString(core.getInput("terraform_plan_path"), config2.terraform_plan_path),
     pricingCatalogPath: pickString(core.getInput("pricing_catalog_path"), config2.pricing_catalog_path),
