@@ -18,6 +18,7 @@ import { runCostGuardian } from './run.js';
 import { defaultWindow } from './utils/money.js';
 import { safeError } from './utils/sanitize.js';
 import type { CommentClient } from './executors/effects.js';
+import type { CheckRunClient, LabelClient } from './executors/github-status.js';
 
 const LOG = '[JEV Cloud Cost Guardian]';
 
@@ -122,14 +123,16 @@ async function main(): Promise<void> {
   });
 
   const commentOnGithub = pickBoolean(core.getInput('comment_on_github'), config.comment_on_github, false);
+  const applyLabels = pickBoolean(core.getInput('apply_labels'), config.apply_labels, false);
+  const createCheckRun = pickBoolean(core.getInput('create_check_run'), config.create_check_run, true);
   const dryRun = pickBoolean(core.getInput('dry_run'), undefined, false);
   const token = core.getInput('github_token') || process.env.GITHUB_TOKEN;
   const issueNumber = github.context.payload.pull_request?.number ?? github.context.issue?.number;
+  const octokit = token ? github.getOctokit(token) : null;
   const commentClient: CommentClient | null =
-    commentOnGithub && !dryRun && token && issueNumber
+    commentOnGithub && !dryRun && octokit && issueNumber
       ? {
           async listComments() {
-            const octokit = github.getOctokit(token);
             const comments = await octokit.rest.issues.listComments({
               owner: github.context.repo.owner,
               repo: github.context.repo.repo,
@@ -139,7 +142,6 @@ async function main(): Promise<void> {
             return comments.data.map(comment => ({ id: comment.id, body: comment.body ?? '' }));
           },
           async createComment(body: string) {
-            const octokit = github.getOctokit(token);
             await octokit.rest.issues.createComment({
               owner: github.context.repo.owner,
               repo: github.context.repo.repo,
@@ -148,7 +150,6 @@ async function main(): Promise<void> {
             });
           },
           async updateComment(id: number, body: string) {
-            const octokit = github.getOctokit(token);
             await octokit.rest.issues.updateComment({
               owner: github.context.repo.owner,
               repo: github.context.repo.repo,
@@ -158,6 +159,68 @@ async function main(): Promise<void> {
           },
         }
       : null;
+
+  const labelClient: LabelClient | null =
+    applyLabels && !dryRun && octokit && issueNumber
+      ? {
+          async listLabels() {
+            const issue = await octokit.rest.issues.get({
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
+              issue_number: issueNumber,
+            });
+            return (issue.data.labels ?? [])
+              .map(label => (typeof label === 'string' ? label : label.name))
+              .filter((name): name is string => typeof name === 'string');
+          },
+          async ensureLabel(name: string) {
+            try {
+              await octokit.rest.issues.createLabel({
+                owner: github.context.repo.owner,
+                repo: github.context.repo.repo,
+                name,
+                color: '1D76DB',
+                description: 'Managed by JEV Cloud Cost Guardian',
+              });
+            } catch (error) {
+              const status =
+                error && typeof error === 'object' && 'status' in error
+                  ? Number((error as { status?: number }).status)
+                  : undefined;
+              if (status !== 422) throw error;
+            }
+          },
+          async setLabels(next: string[]) {
+            await octokit.rest.issues.setLabels({
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
+              issue_number: issueNumber,
+              labels: next,
+            });
+          },
+        }
+      : null;
+
+  const headSha =
+    github.context.payload.pull_request?.head?.sha ?? github.context.sha ?? null;
+  const checkRunClient: CheckRunClient | null = octokit
+    ? {
+        async createCheckRun(input) {
+          await octokit.rest.checks.create({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            name: input.name,
+            head_sha: input.headSha,
+            status: 'completed',
+            conclusion: input.conclusion,
+            output: {
+              title: input.title,
+              summary: input.summary,
+            },
+          });
+        },
+      }
+    : null;
 
   const result = await runCostGuardian({
     report,
@@ -180,8 +243,13 @@ async function main(): Promise<void> {
     apiKey: resolveApiKey(jevProvider),
     redactResourceNames: pickBoolean(core.getInput('redact_resource_names'), config.redact_resource_names, true),
     commentOnGithub,
+    applyLabels,
+    createCheckRun,
     dryRun,
+    headSha,
     commentClient,
+    labelClient,
+    checkRunClient,
   });
 
   await applyOutcome(
@@ -198,6 +266,8 @@ async function main(): Promise<void> {
     result.markdown,
   );
   core.info(`${LOG} Comment: ${result.commentStatus}`);
+  core.info(`${LOG} Labels: ${result.labelStatus}`);
+  core.info(`${LOG} Check run: ${result.checkRunStatus}`);
   core.info(`${LOG} Effects: ${result.effects.join(', ')}`);
 }
 

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+
+* Optional Check Run (`create_check_run`, default true) and managed `jev:cost:*` labels (`apply_labels`).
+* Allowed effects now include `check-run` and `apply-labels` (still never mutate infrastructure).
+
+## [0.1.1] - 2026-09-24
+
 ### Changed
 
 * Professional open-source documentation polish (README, templates, security, examples).

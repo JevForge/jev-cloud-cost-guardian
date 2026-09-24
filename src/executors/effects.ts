@@ -8,13 +8,20 @@ export const ALLOWED_EFFECTS = [
   'set-outputs',
   'write-summary',
   'pull-request-comment',
+  'check-run',
+  'apply-labels',
   'fail-workflow',
 ] as const;
 export type AllowedEffect = (typeof ALLOWED_EFFECTS)[number];
 
-export function effectsFor(outcome: PolicyOutcome, comment: boolean): AllowedEffect[] {
+export function effectsFor(
+  outcome: PolicyOutcome,
+  options: { comment: boolean; checkRun: boolean; labels: boolean },
+): AllowedEffect[] {
   const effects: AllowedEffect[] = ['set-outputs', 'write-summary'];
-  if (comment) effects.push('pull-request-comment');
+  if (options.comment) effects.push('pull-request-comment');
+  if (options.checkRun) effects.push('check-run');
+  if (options.labels) effects.push('apply-labels');
   if (outcome.status === 'fail') effects.push('fail-workflow');
   return effects;
 }

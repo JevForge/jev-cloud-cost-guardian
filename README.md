@@ -27,6 +27,7 @@ Infrastructure PRs often ship without a clear cost signal. This Action collects 
 * Deterministic policy that can tighten `approve`/`warn` but never loosens `block`/`manual-review`
 * Cost lines are never dropped; unpriced resources stay visible
 * Optional pull request comment with job summary (idempotent)
+* Optional Check Run and managed `jev:cost:*` labels for PR status
 * Configurable low-confidence policy: `fail` | `warn` | `request-review` | `no-op`
 
 ## How it works
@@ -301,11 +302,12 @@ Not sent: cloud credentials, Terraform attribute values, private keys, Issue/PR 
 ```yaml
 permissions:
   contents: read
+  checks: write
 ```
 
-Add `pull-requests: write` only when `comment_on_github: true`.
+Add `pull-requests: write` when `comment_on_github` or `apply_labels` is true.
 
-`dry_run: true` still evaluates and writes outputs; it skips the comment. Comments are idempotent via the marker `<!-- jev-cloud-cost-guardian -->`.
+`create_check_run` defaults to `true`. `dry_run: true` still evaluates and writes outputs; it skips the comment, labels, and check run. Comments are idempotent via the marker `<!-- jev-cloud-cost-guardian -->`. Managed labels use the `jev:cost:` prefix and preserve unrelated labels.
 
 ## Security
 
