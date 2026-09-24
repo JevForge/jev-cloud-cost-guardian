@@ -205,6 +205,8 @@ inputs:
 outputs:
   decision:
     description: Final gate decision (approve, warn, block, or manual-review).
+  blocked:
+    description: true when decision is block, otherwise false.
   confidence:
     description: Confidence score between 0 and 1.
   reason_codes:
