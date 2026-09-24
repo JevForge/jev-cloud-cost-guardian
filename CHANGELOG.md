@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.12.0]
+
+### Changed
+
+* Raised Vitest branch coverage threshold to 75% and excluded thin re-export stubs from the coverage surface.
+
 ## [0.11.0]
 
 ### Added
