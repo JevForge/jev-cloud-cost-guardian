@@ -1,7 +1,5 @@
 name: JEV Cloud Cost Guardian
-description: >
-  Uses TypeSafe Jev to decide approve, warn, block, or manual-review for cloud cost
-  changes against a budget. Keeps every cost line visible and does not apply infrastructure.
+description: Uses Jev to approve, warn, block, or review cloud cost changes against a budget.
 author: JevForge
 branding:
   icon: dollar-sign
