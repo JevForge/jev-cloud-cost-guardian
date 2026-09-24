@@ -188,6 +188,8 @@ outputs:
     description: Baseline plus delta, or empty when the baseline is unknown.
   budget_monthly:
     description: Budget used for the decision.
+  budget_rule:
+    description: Name of the matched budgets[] rule from config, or empty when using the global budget.
   budget_remaining:
     description: Budget minus scoped cost. Negative means over budget.
   utilization:

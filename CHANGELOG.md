@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+* Optional `budgets[]` rules in `.jev/config.yml` (environment / path glob / service) with most-specific match.
+* Output `budget_rule` naming the matched rule; `budget_monthly` input remains the global fallback.
+
 ## [0.2.0]
 
 ### Added

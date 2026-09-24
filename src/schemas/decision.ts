@@ -14,6 +14,7 @@ export const CostDecisionSchema = z
     delta_monthly: z.number().finite(),
     projected_monthly: z.number().finite().nullable(),
     budget_monthly: z.number().finite().nonnegative(),
+    budget_rule: z.string().min(1).max(128).nullable().optional(),
     budget_remaining: z.number().finite().nullable(),
     utilization: z.number().finite().nullable(),
     summary: z.string().min(1).max(500),

@@ -17,6 +17,7 @@ export function writeDecisionOutputs(writer: ActionOutputWriter, decision: CostD
   writer.setOutput('baseline_monthly', decision.baseline_monthly == null ? '' : String(decision.baseline_monthly));
   writer.setOutput('projected_monthly', decision.projected_monthly == null ? '' : String(decision.projected_monthly));
   writer.setOutput('budget_monthly', String(decision.budget_monthly));
+  writer.setOutput('budget_rule', decision.budget_rule ?? '');
   writer.setOutput('budget_remaining', decision.budget_remaining == null ? '' : String(decision.budget_remaining));
   writer.setOutput('utilization', decision.utilization == null ? '' : String(decision.utilization));
   writer.setOutput('currency', decision.currency);

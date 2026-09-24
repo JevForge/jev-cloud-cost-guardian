@@ -78,6 +78,7 @@ async function main(): Promise<void> {
     window,
     normalizeToMonthly: pickBoolean(core.getInput('normalize_to_monthly'), config.normalize_to_monthly, false),
     budgetMonthly,
+    budgetRules: config.budgets,
     warnUtilization: pickNumber(core.getInput('warn_utilization'), config.warn_utilization, 0.8),
     blockUtilization: pickNumber(core.getInput('block_utilization'), config.block_utilization, 1),
     budgetScope: pickBudgetScope(core.getInput('budget_scope'), config),

@@ -67185,6 +67185,60 @@ init_zod();
 var import_node_fs2 = require("node:fs");
 init_zod();
 init_enums();
+
+// src/collectors/budgets.ts
+init_zod();
+init_enums();
+var BudgetRuleSchema = external_exports.object({
+  name: external_exports.string().min(1).max(128).optional(),
+  monthly: external_exports.number().finite().nonnegative(),
+  environment: external_exports.enum(ENVIRONMENTS).optional(),
+  path: external_exports.string().min(1).max(256).optional(),
+  service: external_exports.string().min(1).max(128).optional()
+}).strict();
+function globToRegExp(pattern) {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, "i");
+}
+function scoreRule(rule, environment, lines) {
+  let score = 0;
+  if (rule.environment) {
+    if (rule.environment !== environment) return null;
+    score += 4;
+  }
+  if (rule.service) {
+    const service = rule.service.toLowerCase();
+    if (!lines.some((line) => line.service.toLowerCase() === service || line.resource_type.toLowerCase() === service)) {
+      return null;
+    }
+    score += 2;
+  }
+  if (rule.path) {
+    const re = globToRegExp(rule.path);
+    if (!lines.some((line) => re.test(line.address))) return null;
+    score += 3;
+  }
+  return score;
+}
+function resolveBudget(environment, lines, rules, fallbackMonthly) {
+  if (!rules?.length) {
+    return { monthly: fallbackMonthly, rule_name: null, matched: false };
+  }
+  let best = null;
+  for (const rule of rules) {
+    const score = scoreRule(rule, environment, lines);
+    if (score == null) continue;
+    if (!best || score > best.score) best = { score, rule };
+  }
+  if (!best) return { monthly: fallbackMonthly, rule_name: null, matched: false };
+  return {
+    monthly: best.rule.monthly,
+    rule_name: best.rule.name ?? "matched-rule",
+    matched: true
+  };
+}
+
+// src/collectors/config.ts
 init_fs();
 init_sanitize();
 var GuardianConfigSchema = external_exports.object({
@@ -67194,6 +67248,7 @@ var GuardianConfigSchema = external_exports.object({
   min_confidence: external_exports.number().min(0).max(1).optional(),
   low_confidence_policy: external_exports.enum(LOW_CONFIDENCE_POLICIES).optional(),
   budget_monthly: external_exports.number().finite().nonnegative().optional(),
+  budgets: external_exports.array(BudgetRuleSchema).max(64).optional(),
   currency: external_exports.string().regex(/^[A-Za-z]{3}$/).optional(),
   environment: external_exports.enum(ENVIRONMENTS).optional(),
   window_start: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -67382,6 +67437,7 @@ function aggregateCosts(input) {
     warn_utilization: input.warn_utilization,
     block_utilization: input.block_utilization,
     budget_scope: input.budget_scope,
+    budget_rule_name: input.budget_rule_name ?? null,
     unpriced_count: lines.filter((line) => line.unpriced).length,
     partial_count: lines.filter((line) => line.partial).length,
     sources,
@@ -68213,13 +68269,25 @@ async function loadCostReport(request) {
     throw new Error("No cost sources were configured. Pass estimates, a plan, or a billing connector.");
   }
   if (lines.length > 5e3) throw new Error(`Refusing to truncate ${lines.length} cost lines`);
+  const resolved = resolveBudget(
+    request.environment,
+    lines,
+    request.budgetRules,
+    request.budgetMonthly
+  );
+  if (resolved.matched) {
+    warnings.push(
+      `Applied budget rule ${resolved.rule_name ?? "matched-rule"} (${resolved.monthly} ${request.currency}/month).`
+    );
+  }
   return aggregateCosts({
     lines,
     warnings,
     currency: request.currency,
     environment: request.environment,
     window: request.window,
-    budget_monthly: request.budgetMonthly,
+    budget_monthly: resolved.monthly,
+    budget_rule_name: resolved.rule_name,
     warn_utilization: request.warnUtilization,
     block_utilization: request.blockUtilization,
     budget_scope: request.budgetScope,
@@ -68236,6 +68304,7 @@ function writeDecisionOutputs(writer, decision) {
   writer.setOutput("baseline_monthly", decision.baseline_monthly == null ? "" : String(decision.baseline_monthly));
   writer.setOutput("projected_monthly", decision.projected_monthly == null ? "" : String(decision.projected_monthly));
   writer.setOutput("budget_monthly", String(decision.budget_monthly));
+  writer.setOutput("budget_rule", decision.budget_rule ?? "");
   writer.setOutput("budget_remaining", decision.budget_remaining == null ? "" : String(decision.budget_remaining));
   writer.setOutput("utilization", decision.utilization == null ? "" : String(decision.utilization));
   writer.setOutput("currency", decision.currency);
@@ -68275,6 +68344,7 @@ var CostDecisionSchema = external_exports.object({
   delta_monthly: external_exports.number().finite(),
   projected_monthly: external_exports.number().finite().nullable(),
   budget_monthly: external_exports.number().finite().nonnegative(),
+  budget_rule: external_exports.string().min(1).max(128).nullable().optional(),
   budget_remaining: external_exports.number().finite().nullable(),
   utilization: external_exports.number().finite().nullable(),
   summary: external_exports.string().min(1).max(500),
@@ -68362,6 +68432,7 @@ function normalizeAnswer(answer, report) {
       delta_monthly: report.delta_monthly,
       projected_monthly: report.projected_monthly,
       budget_monthly: report.budget_monthly,
+      budget_rule: report.budget_rule_name,
       budget_remaining: report.budget_remaining,
       utilization: report.utilization,
       summary: buildSummary("manual-review", report, 0),
@@ -68395,6 +68466,7 @@ function normalizeAnswer(answer, report) {
     delta_monthly: report.delta_monthly,
     projected_monthly: report.projected_monthly,
     budget_monthly: report.budget_monthly,
+    budget_rule: report.budget_rule_name,
     budget_remaining: report.budget_remaining,
     utilization: report.utilization,
     summary: buildSummary(decision, report, answer.confidence),
@@ -83745,6 +83817,7 @@ async function main() {
     window: window2,
     normalizeToMonthly: pickBoolean(core.getInput("normalize_to_monthly"), config2.normalize_to_monthly, false),
     budgetMonthly,
+    budgetRules: config2.budgets,
     warnUtilization: pickNumber(core.getInput("warn_utilization"), config2.warn_utilization, 0.8),
     blockUtilization: pickNumber(core.getInput("block_utilization"), config2.block_utilization, 1),
     budgetScope: pickBudgetScope(core.getInput("budget_scope"), config2),
