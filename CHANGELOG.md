@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.10.0]
+
+### Added
+
+* Kubernetes unit-price flags `use_resource_limits` (`max(requests, limits)`) and `prefer_hpa_max_replicas` (HPA `maxReplicas`), with honest `LIMITS_MISSING` / `HPA_MAX_UNKNOWN` detail codes.
+
 ## [0.9.0]
 
 ### Added
