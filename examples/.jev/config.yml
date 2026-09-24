@@ -1,4 +1,15 @@
 budget_monthly: 1000
+budgets:
+  - name: production
+    environment: production
+    monthly: 1000
+  - name: staging
+    environment: staging
+    monthly: 250
+  - name: api-module
+    environment: production
+    path: module.api.*
+    monthly: 400
 currency: USD
 environment: production
 budget_scope: projected

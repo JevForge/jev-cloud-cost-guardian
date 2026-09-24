@@ -13,6 +13,7 @@ import { parseInfracostText } from './infracost.js';
 import { parseKubecostText, parseUnitPrices } from './kubernetes.js';
 import { parseNormalizedDocument } from './normalized.js';
 import { parsePricingCatalog, parseTerraformPlanText, type PricingCatalog } from './terraform.js';
+import { resolveBudget, type BudgetRule } from './budgets.js';
 import type { CollectResult } from './types.js';
 
 export interface LoadSourcesRequest {
@@ -22,6 +23,7 @@ export interface LoadSourcesRequest {
   window: { start: string; end: string };
   normalizeToMonthly: boolean;
   budgetMonthly: number;
+  budgetRules?: BudgetRule[];
   warnUtilization: number;
   blockUtilization: number;
   budgetScope: 'projected' | 'delta';
@@ -184,13 +186,26 @@ export async function loadCostReport(request: LoadSourcesRequest): Promise<CostR
   }
   if (lines.length > 5_000) throw new Error(`Refusing to truncate ${lines.length} cost lines`);
 
+  const resolved = resolveBudget(
+    request.environment,
+    lines,
+    request.budgetRules,
+    request.budgetMonthly,
+  );
+  if (resolved.matched) {
+    warnings.push(
+      `Applied budget rule ${resolved.rule_name ?? 'matched-rule'} (${resolved.monthly} ${request.currency}/month).`,
+    );
+  }
+
   return aggregateCosts({
     lines,
     warnings,
     currency: request.currency,
     environment: request.environment,
     window: request.window,
-    budget_monthly: request.budgetMonthly,
+    budget_monthly: resolved.monthly,
+    budget_rule_name: resolved.rule_name,
     warn_utilization: request.warnUtilization,
     block_utilization: request.blockUtilization,
     budget_scope: request.budgetScope,

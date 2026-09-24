@@ -116,6 +116,20 @@ Pin `@v0.1.0`, the floating major `@v0`, or a full commit SHA.
 
 Defaults can also live in `.jev/config.yml`. A workflow input wins when it is set.
 
+Optional `budgets[]` rules override the global `budget_monthly` when they match (most specific wins: environment + path + service):
+
+```yaml
+budget_monthly: 1000
+budgets:
+  - name: production
+    environment: production
+    monthly: 1000
+  - name: api-module
+    environment: production
+    path: module.api.*
+    monthly: 400
+```
+
 ## Complete Example
 
 Infracost + PR comment + branch on decision:
@@ -227,6 +241,7 @@ Connector details: [docs/connectors.md](docs/connectors.md).
 | `baseline_monthly` | Known baseline, or empty |
 | `projected_monthly` | Baseline + delta, or empty |
 | `budget_monthly` | Budget used |
+| `budget_rule` | Matched `budgets[]` rule name, or empty |
 | `budget_remaining` | Budget − scoped cost (negative = over) |
 | `utilization` | Scoped cost ÷ budget |
 | `currency` | Budget currency |

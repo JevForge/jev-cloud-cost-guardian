@@ -10,6 +10,7 @@ import {
   type JevProviderId,
   type LowConfidencePolicy,
 } from '../schemas/enums.js';
+import { BudgetRuleSchema } from './budgets.js';
 import { parseYamlOrJson, readBounded } from '../utils/fs.js';
 import { resolveInside } from '../utils/sanitize.js';
 
@@ -21,6 +22,7 @@ export const GuardianConfigSchema = z
     min_confidence: z.number().min(0).max(1).optional(),
     low_confidence_policy: z.enum(LOW_CONFIDENCE_POLICIES).optional(),
     budget_monthly: z.number().finite().nonnegative().optional(),
+    budgets: z.array(BudgetRuleSchema).max(64).optional(),
     currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
     environment: z.enum(ENVIRONMENTS).optional(),
     window_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

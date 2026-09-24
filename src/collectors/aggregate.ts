@@ -22,6 +22,7 @@ export interface AggregateInput {
   block_utilization: number;
   budget_scope: BudgetScope;
   fx_rates: Record<string, number>;
+  budget_rule_name?: string | null;
 }
 
 export interface CostReport {
@@ -39,6 +40,7 @@ export interface CostReport {
   warn_utilization: number;
   block_utilization: number;
   budget_scope: BudgetScope;
+  budget_rule_name: string | null;
   unpriced_count: number;
   partial_count: number;
   sources: CostSource[];
@@ -170,6 +172,7 @@ export function aggregateCosts(input: AggregateInput): CostReport {
     warn_utilization: input.warn_utilization,
     block_utilization: input.block_utilization,
     budget_scope: input.budget_scope,
+    budget_rule_name: input.budget_rule_name ?? null,
     unpriced_count: lines.filter(line => line.unpriced).length,
     partial_count: lines.filter(line => line.partial).length,
     sources,
