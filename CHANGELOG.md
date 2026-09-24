@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.8.0]
+
+### Added
+
+* Optional `warn_delta_pct` / `block_delta_pct` rails comparing `delta_monthly / |baseline|` when baseline is known (`DELTA_WARN` / `DELTA_BLOCK`).
+
 ## [0.7.0]
 
 ### Added

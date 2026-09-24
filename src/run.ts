@@ -24,6 +24,8 @@ export interface RunGuardianParams {
   allowMissingBaseline: boolean;
   failOnBlock: boolean;
   failOnManualReview: boolean;
+  warnDeltaPct?: number | null;
+  blockDeltaPct?: number | null;
   jevProvider: JevProviderId;
   jevEndpoint?: string;
   jevModel?: string;
@@ -78,6 +80,8 @@ export async function runCostGuardian(params: RunGuardianParams): Promise<RunGua
     allowMissingBaseline: params.allowMissingBaseline,
     failOnBlock: params.failOnBlock,
     failOnManualReview: params.failOnManualReview,
+    warnDeltaPct: params.warnDeltaPct,
+    blockDeltaPct: params.blockDeltaPct,
   });
   const effects = effectsFor(outcome, {
     comment: params.commentOnGithub && !params.dryRun,

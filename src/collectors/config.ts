@@ -29,6 +29,8 @@ export const GuardianConfigSchema = z
     window_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     warn_utilization: z.number().min(0).max(10).optional(),
     block_utilization: z.number().min(0).max(10).optional(),
+    warn_delta_pct: z.number().min(0).max(100).optional(),
+    block_delta_pct: z.number().min(0).max(100).optional(),
     budget_scope: z.enum(BUDGET_SCOPES).optional(),
     enforce_block_threshold: z.boolean().optional(),
     allow_unpriced: z.boolean().optional(),

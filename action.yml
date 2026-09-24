@@ -35,6 +35,12 @@ inputs:
     description: Utilization ratio that can tighten approve/warn to block (for example 1.0).
     required: false
     default: '1'
+  warn_delta_pct:
+    description: When baseline is known, warn if delta/baseline is at or above this ratio (for example 0.2 = 20%).
+    required: false
+  block_delta_pct:
+    description: When baseline is known, block if delta/baseline is at or above this ratio (for example 0.5 = 50%).
+    required: false
   estimates_path:
     description: Workspace-relative path to normalized cost estimates (JSON or YAML).
     required: false

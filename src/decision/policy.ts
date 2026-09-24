@@ -20,12 +20,21 @@ export interface PolicyOptions {
   allowMissingBaseline: boolean;
   failOnBlock: boolean;
   failOnManualReview: boolean;
+  warnDeltaPct?: number | null;
+  blockDeltaPct?: number | null;
 }
 
 function overBlockThreshold(report: CostReport): boolean {
   if (report.scope_monthly == null) return false;
   if (report.budget_monthly === 0) return report.scope_monthly > 0;
   return report.scope_monthly >= report.budget_monthly * report.block_utilization;
+}
+
+function deltaRatio(report: CostReport): number | null {
+  if (!report.baseline_known || report.baseline_monthly == null) return null;
+  const baseline = Math.abs(report.baseline_monthly);
+  if (baseline === 0) return report.delta_monthly === 0 ? 0 : null;
+  return report.delta_monthly / baseline;
 }
 
 function withDecision(decision: CostDecision, next: Decision, report: CostReport, reasons: Set<ReasonCode>): CostDecision {
@@ -81,6 +90,24 @@ export function applyCostPolicy(decision: CostDecision, report: CostReport, opti
       reasons.add('HARD_BLOCK_THRESHOLD');
       reasons.add('EXCEEDS_BUDGET');
       current = withDecision(current, 'block', report, reasons);
+    }
+    const ratio = deltaRatio(report);
+    if (ratio != null) {
+      if (
+        options.blockDeltaPct != null &&
+        ratio >= options.blockDeltaPct &&
+        (current.decision === 'approve' || current.decision === 'warn')
+      ) {
+        reasons.add('DELTA_BLOCK');
+        current = withDecision(current, 'block', report, reasons);
+      } else if (
+        options.warnDeltaPct != null &&
+        ratio >= options.warnDeltaPct &&
+        current.decision === 'approve'
+      ) {
+        reasons.add('DELTA_WARN');
+        current = withDecision(current, 'warn', report, reasons);
+      }
     }
     if (current.confidence < options.minConfidence) {
       reasons.add('LOW_CONFIDENCE');
