@@ -62,6 +62,8 @@ flowchart LR
 5. Apply rails for confidence, unpriced/partial lines, missing baseline, and block ceiling.
 6. Emit outputs and an optional PR comment. Fail when `decision=block` and `fail_on_block=true`.
 
+The Jev contract lives under `src/core/` (vendored; a future `@jevforge/core` package is planned). `src/jev/*` re-exports the same modules.
+
 ## Demo
 
 ```text

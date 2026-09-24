@@ -68501,7 +68501,7 @@ var CostDecisionSchema = external_exports.object({
   partial_count: external_exports.number().int().nonnegative()
 }).strict();
 
-// src/jev/normalize.ts
+// src/core/jev/normalize.ts
 init_enums();
 init_fs();
 var DELTA_CHANGES2 = /* @__PURE__ */ new Set(["create", "update", "delete"]);
@@ -83568,7 +83568,7 @@ var originalGenerateCallId7 = createIdGenerator({
 });
 var defaultDownload2 = createDownload();
 
-// src/jev/http-evaluate.ts
+// src/core/jev/http-evaluate.ts
 init_enums();
 init_sanitize();
 function answerFromEvaluateBody(body) {
@@ -83627,7 +83627,7 @@ async function postEvaluate(options) {
   }
 }
 
-// src/jev/questions.ts
+// src/core/jev/questions.ts
 function buildCostQuestions() {
   return {
     decision: {
@@ -83695,7 +83695,7 @@ function assertStateFits(state2) {
   }
 }
 
-// src/jev/vercel-ai-gateway.ts
+// src/core/jev/vercel-ai-gateway.ts
 init_sanitize();
 function createVercelAiGatewayProvider(options) {
   return {
@@ -83736,7 +83736,7 @@ function createVercelAiGatewayProvider(options) {
   };
 }
 
-// src/jev/typesafe-native.ts
+// src/core/jev/typesafe-native.ts
 function createTypesafeNativeProvider(options) {
   const fetchImpl = options.fetchImpl ?? fetch;
   return {
@@ -83788,7 +83788,7 @@ function createTypesafeNativeProvider(options) {
   };
 }
 
-// src/jev/custom-compatible.ts
+// src/core/jev/custom-compatible.ts
 function createCustomCompatibleProvider(options) {
   const fetchImpl = options.fetchImpl ?? fetch;
   return {
@@ -83840,7 +83840,7 @@ function createCustomCompatibleProvider(options) {
   };
 }
 
-// src/jev/factory.ts
+// src/core/jev/factory.ts
 function createJevProvider(input) {
   switch (input.provider) {
     case "vercel-ai-gateway":

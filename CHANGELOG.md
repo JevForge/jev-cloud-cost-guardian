@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.6.0]
+
+### Changed
+
+* Moved the Jev provider/normalize contract into `src/core/` (vendored core; future `@jevforge/core`). `src/jev/*` re-exports for compatibility.
+
 ## [0.5.0]
 
 ### Added
