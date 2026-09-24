@@ -86,6 +86,13 @@ describe('deterministic policy', () => {
     expect(blocked.decision.reason_codes).toContain('DELTA_BLOCK');
   });
 
+  it('fails the workflow when fail_on_warn is set', () => {
+    const decision = normalizeAnswer({ decision: 'warn', confidence: 0.9, provisional: false }, within);
+    const outcome = applyCostPolicy(decision, within, { ...policyDefaults, failOnWarn: true });
+    expect(outcome.status).toBe('fail');
+    expect(outcome.decision.decision).toBe('warn');
+  });
+
   it('limits effects to outputs, summary, comments, and workflow failure', async () => {
     const decision = normalizeAnswer({ decision: 'warn', confidence: 0.9, provisional: false }, within);
     const outcome = applyCostPolicy(decision, within, { ...policyDefaults, failOnBlock: false });

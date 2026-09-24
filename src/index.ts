@@ -248,6 +248,7 @@ async function main(): Promise<void> {
     ),
     failOnBlock: pickBoolean(core.getInput('fail_on_block'), config.fail_on_block, true),
     failOnManualReview: pickBoolean(core.getInput('fail_on_manual_review'), config.fail_on_manual_review, false),
+    failOnWarn: pickBoolean(core.getInput('fail_on_warn'), config.fail_on_warn, false),
     warnDeltaPct: (() => {
       const raw = pickString(core.getInput('warn_delta_pct'), config.warn_delta_pct?.toString());
       return raw == null || raw === '' ? null : Number(raw);

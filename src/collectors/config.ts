@@ -44,6 +44,7 @@ export const GuardianConfigSchema = z
     redact_resource_names: z.boolean().optional(),
     fail_on_block: z.boolean().optional(),
     fail_on_manual_review: z.boolean().optional(),
+    fail_on_warn: z.boolean().optional(),
     include_aws_forecast: z.boolean().optional(),
     fx_rates: z.record(z.number().positive()).optional(),
     estimates_path: z.string().optional(),

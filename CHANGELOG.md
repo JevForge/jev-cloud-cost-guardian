@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.15.0]
+
+### Added
+
+* Input `fail_on_warn` (default false) fails the workflow when the final decision is `warn`.
+
 ## [0.14.0]
 
 ### Changed

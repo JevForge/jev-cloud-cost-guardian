@@ -67387,6 +67387,7 @@ var GuardianConfigSchema = external_exports.object({
   redact_resource_names: external_exports.boolean().optional(),
   fail_on_block: external_exports.boolean().optional(),
   fail_on_manual_review: external_exports.boolean().optional(),
+  fail_on_warn: external_exports.boolean().optional(),
   include_aws_forecast: external_exports.boolean().optional(),
   fx_rates: external_exports.record(external_exports.number().positive()).optional(),
   estimates_path: external_exports.string().optional(),
@@ -68901,7 +68902,11 @@ function applyCostPolicy(decision, report, options) {
     return { status: "no-op", decision: current, message: current.summary };
   }
   if (current.decision === "warn" || lowConfidence && options.lowConfidencePolicy === "warn") {
-    return { status: "warn", decision: current, message: current.summary };
+    return {
+      status: options.failOnWarn ? "fail" : "warn",
+      decision: current,
+      message: current.summary
+    };
   }
   if (current.decision === "manual-review" || lowConfidence && options.lowConfidencePolicy === "request-review") {
     return { status: "manual-review", decision: current, message: current.summary };
@@ -84072,6 +84077,7 @@ async function runCostGuardian(params) {
     allowMissingBaseline: params.allowMissingBaseline,
     failOnBlock: params.failOnBlock,
     failOnManualReview: params.failOnManualReview,
+    failOnWarn: params.failOnWarn,
     warnDeltaPct: params.warnDeltaPct,
     blockDeltaPct: params.blockDeltaPct
   });
@@ -84304,6 +84310,7 @@ async function main() {
     ),
     failOnBlock: pickBoolean(core.getInput("fail_on_block"), config2.fail_on_block, true),
     failOnManualReview: pickBoolean(core.getInput("fail_on_manual_review"), config2.fail_on_manual_review, false),
+    failOnWarn: pickBoolean(core.getInput("fail_on_warn"), config2.fail_on_warn, false),
     warnDeltaPct: (() => {
       const raw = pickString(core.getInput("warn_delta_pct"), config2.warn_delta_pct?.toString());
       return raw == null || raw === "" ? null : Number(raw);
