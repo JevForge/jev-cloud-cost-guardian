@@ -19,6 +19,8 @@ import { defaultWindow } from './utils/money.js';
 import { safeError } from './utils/sanitize.js';
 import type { CommentClient } from './executors/effects.js';
 
+const LOG = '[JEV Cloud Cost Guardian]';
+
 function env(name: string): string | undefined {
   const value = process.env[name];
   return value?.trim() ? value : undefined;
@@ -37,10 +39,12 @@ async function main(): Promise<void> {
   const currency = (pickString(core.getInput('currency'), config.currency, 'USD') ?? 'USD').toUpperCase();
   const environment = pickEnvironment(core.getInput('environment'), config);
   const budgetText = pickString(core.getInput('budget_monthly'), config.budget_monthly?.toString());
-  if (!budgetText) throw new Error('budget_monthly is required via input or .jev/config.yml');
+  if (!budgetText) {
+    throw new Error(`${LOG} budget_monthly is required via input or .jev/config.yml`);
+  }
   const budgetMonthly = Number(budgetText);
   if (!Number.isFinite(budgetMonthly) || budgetMonthly < 0) {
-    throw new Error('budget_monthly must be a non-negative number');
+    throw new Error(`${LOG} budget_monthly must be a non-negative number`);
   }
   const fallbackWindow = defaultWindow();
   const window = {
@@ -54,16 +58,16 @@ async function main(): Promise<void> {
   const estimatesJson = core.getInput('estimates_json').trim();
   const estimatesPath = pickString(core.getInput('estimates_path'), config.estimates_path);
   if (estimatesJson && estimatesPath) {
-    throw new Error('Pass estimates_json or estimates_path, not both');
+    throw new Error(`${LOG} Pass estimates_json or estimates_path, not both`);
   }
   const kubernetesPaths = splitPaths(core.getInput('kubernetes_paths'));
   const awsEnabled = pickBoolean(core.getInput('aws_enabled'), undefined, false);
   const azureEnabled = pickBoolean(core.getInput('azure_enabled'), undefined, false);
   const gcpEnabled = pickBoolean(core.getInput('gcp_enabled'), undefined, false);
 
-  core.info(`Jev provider: ${jevProvider}`);
+  core.info(`${LOG} Jev provider: ${jevProvider}`);
   core.info(
-    'Data sent to Jev: cost lines, budget, utilization, environment, and window. Credentials, secrets, and raw Terraform attributes are not sent.',
+    `${LOG} Data sent to Jev: cost lines, budget, utilization, environment, and window. Credentials, secrets, and raw Terraform attributes are not sent.`,
   );
 
   const report = await loadCostReport({
@@ -193,10 +197,11 @@ async function main(): Promise<void> {
     result.outcome,
     result.markdown,
   );
-  core.info(`Comment: ${result.commentStatus}`);
-  core.info(`Effects: ${result.effects.join(', ')}`);
+  core.info(`${LOG} Comment: ${result.commentStatus}`);
+  core.info(`${LOG} Effects: ${result.effects.join(', ')}`);
 }
 
 main().catch(error => {
-  core.setFailed(safeError(error));
+  const message = safeError(error);
+  core.setFailed(message.startsWith(LOG) ? message : `${LOG} ${message}`);
 });

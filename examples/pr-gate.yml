@@ -1,0 +1,37 @@
+name: Cloud cost PR gate
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: cost
+        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        with:
+          budget_monthly: '1000'
+          environment: production
+          estimates_path: examples/estimates.yml
+          comment_on_github: 'true'
+          fail_on_block: 'true'
+          github_token: ${{ github.token }}
+
+      - name: Allow when approved
+        if: steps.cost.outputs.decision == 'approve'
+        run: echo "Within budget"
+
+      - name: Warn path
+        if: steps.cost.outputs.decision == 'warn'
+        run: echo "Near budget — continue with caution"
+
+      - name: Manual review path
+        if: steps.cost.outputs.decision == 'manual-review'
+        run: echo "Needs FinOps review"

@@ -3,7 +3,7 @@
 This repository is prepared for the GitHub Marketplace.
 
 - Name: JEV Cloud Cost Guardian
-- Short description (≤125 chars): Uses Jev to approve, warn, block, or review cloud cost changes against a budget.
+- Short description (≤125 chars): Evaluate cloud spend against a budget and gate CI with Jev (approve, warn, block, or review).
 - Primary category: Continuous integration
 - Additional category: Deployment
 - Icon: `dollar-sign`

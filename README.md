@@ -1,33 +1,92 @@
 # JEV Cloud Cost Guardian
 
-GitHub Action that compares proposed and current cloud spend with a budget and asks Jev for `approve`, `warn`, `block`, or `manual-review`.
+[![GitHub Release](https://img.shields.io/github/v/release/JevForge/jev-cloud-cost-guardian)](https://github.com/JevForge/jev-cloud-cost-guardian/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/JevForge/jev-cloud-cost-guardian/actions/workflows/ci.yml/badge.svg)](https://github.com/JevForge/jev-cloud-cost-guardian/actions/workflows/ci.yml)
 
-FinOps, platform, and DevOps reviewers use it on pull requests that change Terraform, Kubernetes, or cloud bills. The action shows every cost line. It does not apply infrastructure and it does not hide an unpriced resource.
+**Evaluate proposed cloud spend against a budget** and expose a typed CI gate (`approve`, `warn`, `block`, or `manual-review`) using [TypeSafe Jev](https://vercel.com/ai-gateway/models/jev).
+
+Infrastructure PRs often ship without a clear cost signal. This Action collects plan/billing evidence, asks Jev for a structured decision, then applies deterministic rails so every cost line stays visible. It does **not** apply Terraform, kubectl, or cloud mutations.
+
+```yaml
+- id: cost
+  uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+  env:
+    AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+  with:
+    budget_monthly: '1000'
+    estimates_path: examples/estimates.yml
+```
+
+## Features
+
+* Typed FinOps gate powered by Jev (`experimental_evaluate`, not free-form generation)
+* Secret-based authentication (`AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, or `JEV_CUSTOM_API_KEY`)
+* Structured outputs for later steps (`decision`, `utilization`, `findings`, …)
+* Collectors for normalized estimates, Infracost, Terraform plans, Kubernetes, Kubecost, AWS, Azure, and GCP
+* Deterministic policy that can tighten `approve`/`warn` but never loosens `block`/`manual-review`
+* Cost lines are never dropped; unpriced resources stay visible
+* Optional pull request comment with job summary (idempotent)
+* Configurable low-confidence policy: `fail` | `warn` | `request-review` | `no-op`
 
 ## How it works
 
-```mermaid
-flowchart TD
-  event[Workflow inputs and cost files] --> collect[Collectors]
-  collect --> normalize[Normalize, convert, and redact]
-  normalize --> jev[Jev typed evaluation]
-  jev --> schema[Strict decision schema]
-  schema --> policy[Deterministic policy]
-  policy --> effects[Outputs, summary, optional comment]
+```text
+Cost evidence (plan / bill / estimates)
+        ↓
+Normalize + convert currency + redact
+        ↓
+Jev typed evaluation
+        ↓
+Schema validation + deterministic policy
+        ↓
+Action outputs (+ optional PR comment)
+        ↓
+Next CI/CD step (branch on decision)
 ```
 
-1. Collect normalized estimates, Infracost JSON, a Terraform plan plus pricing catalog, Kubernetes manifests, Kubecost, AWS Cost Explorer, Azure Cost Management, and/or a GCP BigQuery billing export.
-2. Convert everything to one monthly budget currency. Missing FX rates fail the run.
-3. Ask the configured Jev provider for a typed decision. The gateway path uses `experimental_evaluate` with `typesafe-ai/jev`.
-4. Validate the answer. A choice outside the four decisions fails the action.
-5. Apply deterministic rails that can tighten `approve` or `warn`, never loosen `block` or `manual-review`, and always put the collected lines back on the result.
-6. Write outputs and a job summary. Optionally comment on the pull request. Fail the workflow when the final decision is `block` and `fail_on_block` is true.
+```mermaid
+flowchart LR
+  A[Cost evidence] --> B[Collectors]
+  B --> C[Jev]
+  C --> D[Validate]
+  D --> E[Policy]
+  E --> F[Outputs]
+```
 
-Jev chooses the decision. The executor does not calculate `approve` locally when Jev is down, and it does not turn Jev text into a shell command, a file path, or a cloud API call. Allowed effects are outputs, the job summary, a pull request comment, and failing the workflow.
+1. Collect cost lines from files and/or cloud connectors.
+2. Normalize to one monthly budget currency (missing FX rates fail closed).
+3. Call Jev through `jev_provider` (no silent provider fallback).
+4. Validate the typed answer; out-of-contract choices fail the Action.
+5. Apply rails for confidence, unpriced/partial lines, missing baseline, and block ceiling.
+6. Emit outputs and an optional PR comment. Fail when `decision=block` and `fail_on_block=true`.
 
-## Quick start
+## Demo
+
+```text
+Pull Request: add aws_instance.web (+$42.50/mo)
+        ↓
+Baseline $800 + delta $42.50 → projected $842.50
+Budget $1000 → utilization 84.3%
+        ↓
+Jev → decision = warn
+      confidence = 0.82
+      reason_codes includes APPROACHING_BUDGET
+        ↓
+Workflow continues with a warning (or fails if you choose)
+```
+
+## Quick Start
+
+1. Add repository secret `AI_GATEWAY_API_KEY` (default Jev provider).
+2. Provide at least one cost source (for example [`examples/estimates.yml`](examples/estimates.yml)).
+3. Add a workflow:
 
 ```yaml
+name: Cloud cost gate
+on:
+  pull_request:
+
 permissions:
   contents: read
 
@@ -36,142 +95,269 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: JevForge/jev-cloud-cost-guardian@v1
+
+      - id: cost
+        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
         with:
           budget_monthly: '1000'
           estimates_path: examples/estimates.yml
+
+      - name: Print decision
+        run: |
+          echo "decision=${{ steps.cost.outputs.decision }}"
+          echo "utilization=${{ steps.cost.outputs.utilization }}"
+          echo "summary=${{ steps.cost.outputs.summary }}"
 ```
 
-Pin `@v1` or a full commit SHA. See [examples/workflow.yml](examples/workflow.yml) for Infracost and a pull request comment.
+Pin `@v0.1.0`, the floating major `@v0`, or a full commit SHA.
 
-`.jev/config.yml` supplies defaults when the matching input is empty. A workflow input wins when it is set. The Jev provider defaults to `vercel-ai-gateway`.
+Defaults can also live in `.jev/config.yml`. A workflow input wins when it is set.
+
+## Complete Example
+
+Infracost + PR comment + branch on decision:
+
+```yaml
+name: Cloud cost gate
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Infracost breakdown
+        run: infracost breakdown --path . --format json --out-file infracost.json
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+
+      - id: cost
+        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        with:
+          budget_monthly: '1000'
+          currency: USD
+          environment: production
+          infracost_path: infracost.json
+          comment_on_github: 'true'
+          fail_on_block: 'true'
+          github_token: ${{ github.token }}
+
+      - name: Continue only when approved or warned
+        if: steps.cost.outputs.decision == 'approve' || steps.cost.outputs.decision == 'warn'
+        run: echo "Cost gate passed with ${{ steps.cost.outputs.decision }}"
+
+      - name: Stop risky deploys
+        if: steps.cost.outputs.decision == 'block'
+        run: |
+          echo "Blocked by cost gate"
+          exit 1
+```
+
+More samples: [`examples/basic.yml`](examples/basic.yml), [`examples/pr-gate.yml`](examples/pr-gate.yml), [`examples/workflow.yml`](examples/workflow.yml).
 
 ## Inputs
 
-| Input | Required | Default | Role |
-| --- | --- | --- | --- |
-| `budget_monthly` | yes, unless set in config | | Monthly budget |
+| Input | Required | Default | Description |
+| ----- | -------- | ------- | ----------- |
+| `budget_monthly` | yes\* | | Monthly budget (\*or set in `.jev/config.yml`) |
 | `currency` | no | `USD` | Budget currency |
-| `environment` | no | `production` | `production`, `staging`, `development`, `sandbox`, `other` |
+| `environment` | no | `production` | `production` / `staging` / `development` / `sandbox` / `other` |
 | `budget_scope` | no | `projected` | `projected` or `delta` |
-| `window_start`, `window_end` | no | current UTC month | End is exclusive |
-| `warn_utilization` | no | `0.8` | Evidence label threshold |
-| `block_utilization` | no | `1` | Ceiling that tightens `approve` and `warn` to `block` |
-| `estimates_path` / `estimates_json` | one source required | | Normalized estimates. Do not pass both |
-| `infracost_path` | no | | Infracost JSON |
-| `terraform_plan_path` | no | | `terraform show -json` |
+| `window_start` / `window_end` | no | current UTC month | End is exclusive |
+| `warn_utilization` | no | `0.8` | Approaching-budget label |
+| `block_utilization` | no | `1` | Ceiling that can force `block` |
+| `estimates_path` | no† | | Normalized estimates file |
+| `estimates_json` | no† | | Inline estimates JSON (not with `estimates_path`) |
+| `infracost_path` | no† | | Infracost JSON |
+| `terraform_plan_path` | no† | | `terraform show -json` |
 | `pricing_catalog_path` | no | | Prices for Terraform addresses |
-| `kubernetes_paths` | no | | Manifest files or directories |
-| `k8s_unit_prices_path` | with manifests | | CPU and memory unit prices |
-| `kubecost_path` | no | | Kubecost allocation JSON |
-| `aws_enabled` | no | `false` | AWS Cost Explorer |
+| `kubernetes_paths` | no† | | Manifest files or directories |
+| `k8s_unit_prices_path` | with k8s | | CPU/memory unit prices |
+| `kubecost_path` | no† | | Kubecost allocation JSON |
+| `aws_enabled` | no† | `false` | AWS Cost Explorer |
 | `include_aws_forecast` | no | `false` | Informational forecast line |
-| `azure_enabled` | no | `false` | Azure Cost Management |
-| `azure_subscription_id` | with Azure | `AZURE_SUBSCRIPTION_ID` | Subscription |
-| `gcp_enabled` | no | `false` | BigQuery billing export |
-| `gcp_project_id`, `gcp_billing_dataset`, `gcp_billing_table` | with GCP | env vars | Query target |
+| `azure_enabled` | no† | `false` | Azure Cost Management |
+| `azure_subscription_id` | with Azure | env | Subscription id |
+| `gcp_enabled` | no† | `false` | BigQuery billing export |
+| `gcp_project_id` / `gcp_billing_dataset` / `gcp_billing_table` | with GCP | env | Query target |
 | `gcp_location` | no | `US` | BigQuery location |
-| `normalize_to_monthly` | no | `false` | Scale windows that are not a calendar month |
-| `fx_rates` | no | | JSON map such as `{"EUR":1.08}` |
+| `normalize_to_monthly` | no | `false` | Scale non-calendar-month windows |
+| `fx_rates` | no | | JSON FX map, e.g. `{"EUR":1.08}` |
 | `min_confidence` | no | `0.75` | Minimum confidence for `approve` |
-| `low_confidence_policy` | no | `fail` | `fail`, `warn`, `request-review`, `no-op` |
-| `enforce_block_threshold` | no | `true` | Apply the block ceiling |
+| `low_confidence_policy` | no | `fail` | `fail` / `warn` / `request-review` / `no-op` |
+| `enforce_block_threshold` | no | `true` | Apply block ceiling |
 | `allow_unpriced` | no | `false` | Allow `approve` with unpriced lines |
 | `allow_partial` | no | `false` | Allow `approve` with partial lines |
-| `allow_missing_baseline` | no | `false` | Allow projected `approve` without a baseline |
-| `fail_on_block` | no | `true` | Fail the workflow on `block` |
-| `fail_on_manual_review` | no | `false` | Fail the workflow on `manual-review` |
-| `redact_resource_names` | no | `true` | Hash resource addresses |
-| `jev_provider` | no | `vercel-ai-gateway` | `vercel-ai-gateway`, `typesafe-native`, `custom-compatible` |
-| `jev_endpoint` | native and custom | | HTTPS evaluate URL. There is no built-in native host |
-| `jev_model` | native and custom | `typesafe-ai/jev` on the gateway | Pinned Jev model id |
+| `allow_missing_baseline` | no | `false` | Allow projected `approve` without baseline |
+| `fail_on_block` | no | `true` | Fail workflow on `block` |
+| `fail_on_manual_review` | no | `false` | Fail workflow on `manual-review` |
+| `redact_resource_names` | no | `true` | Hash addresses before Jev/outputs |
+| `jev_provider` | no | `vercel-ai-gateway` | How to reach Jev |
+| `jev_endpoint` | native/custom | | HTTPS evaluate URL |
+| `jev_model` | native/custom | gateway default | Pinned Jev model id |
 | `timeout_ms` | no | `45000` | Jev timeout |
 | `connector_timeout_ms` | no | `20000` | Cloud API timeout |
-| `comment_on_github` | no | `false` | Create or update one comment |
+| `comment_on_github` | no | `false` | Create/update one PR comment |
 | `dry_run` | no | `false` | Skip the comment |
-| `github_token` | with comments | `github.token` | Token for the comment |
+| `github_token` | with comments | `github.token` | Comment token |
 
-There is no silent fallback between Jev providers. `typesafe-native` needs `TYPESAFE_API_KEY`, `jev_endpoint`, and `jev_model`. `custom-compatible` needs `JEV_CUSTOM_API_KEY`, an HTTPS endpoint, and a model. The gateway needs `AI_GATEWAY_API_KEY`.
+† At least one cost source is required (file path, inline JSON, or enabled billing connector).
+
+Connector details: [docs/connectors.md](docs/connectors.md).
 
 ## Outputs
 
-| Output | Meaning |
-| --- | --- |
+| Output | Description |
+| ------ | ----------- |
 | `decision` | `approve`, `warn`, `block`, or `manual-review` |
-| `confidence` | 0 to 1 |
-| `reason_codes` | JSON array |
+| `confidence` | 0–1 |
+| `reason_codes` | JSON array of stable codes |
 | `estimated_monthly_impact` | Proposed monthly delta |
 | `baseline_monthly` | Known baseline, or empty |
-| `projected_monthly` | Baseline plus delta, or empty |
+| `projected_monthly` | Baseline + delta, or empty |
 | `budget_monthly` | Budget used |
-| `budget_remaining` | Budget minus scoped cost. Negative is over budget |
-| `utilization` | Scoped cost divided by budget |
+| `budget_remaining` | Budget − scoped cost (negative = over) |
+| `utilization` | Scoped cost ÷ budget |
 | `currency` | Budget currency |
-| `summary` | One line |
-| `explanation` | Short explanation. Never executed |
+| `summary` | One-line summary |
+| `explanation` | Display-only explanation |
 | `provisional` | `true` when Jev did not return a usable answer |
 | `findings` | JSON array of every cost line |
 | `sources` | JSON array of source ids |
 | `unpriced_count` | Lines without a monthly cost |
 
-## Decision model
+### Using outputs in conditions
 
-Jev answers two typed questions: the decision choice, and whether the estimates are too incomplete to approve. Confidence comes from provider metadata, then from the choice probability. Reason codes are derived from the numbers so they stay inside a fixed enum.
+```yaml
+- name: Deploy staging
+  if: steps.cost.outputs.decision == 'approve'
+  run: ./deploy.sh
+
+- name: Require FinOps review
+  if: steps.cost.outputs.decision == 'manual-review'
+  run: echo "Send to FinOps"
+```
+
+## Authentication
+
+Jev credentials come from environment secrets—not Action inputs.
+
+```text
+Repository → Settings → Secrets and variables → Actions → New repository secret
+```
+
+| Provider (`jev_provider`) | Secret |
+| ------------------------- | ------ |
+| `vercel-ai-gateway` (default) | `AI_GATEWAY_API_KEY` |
+| `typesafe-native` | `TYPESAFE_API_KEY` (+ `jev_endpoint`, `jev_model`) |
+| `custom-compatible` | `JEV_CUSTOM_API_KEY` (+ HTTPS `jev_endpoint`, `jev_model`) |
+
+Optional cloud connectors use their own credentials (`AWS_*`, `AZURE_*`, `GCP_ACCESS_TOKEN` / `GOOGLE_APPLICATION_CREDENTIALS`). Never put those values in Action inputs or logs.
+
+**Do not include API keys, tokens, or credentials in Issues, PRs, or workflow logs.**
+
+## Why JEV?
+
+This Action is a **FinOps decision layer**, not a chatbot wrapper.
+
+Jev receives normalized cost evidence and returns a **typed** choice (`approve` | `warn` | `block` | `manual-review`) plus confidence signals via `experimental_evaluate`. The Action then:
+
+* rejects out-of-contract answers (`SCHEMA_REJECTED`);
+* derives stable `reason_codes` from the numbers (not free-form model text);
+* applies deterministic rails (budget ceiling, unpriced lines, low confidence);
+* never executes Jev text as shell, paths, or cloud API calls.
+
+If Jev is unavailable, the result is provisional `manual-review` with confidence `0`—never a silent `approve`.
+
+## Decision model
 
 Rails after the Jev answer:
 
-- Incomplete estimates, low confidence, unpriced lines, partial lines, or a missing projected baseline change `approve` to `manual-review`.
-- Utilization at or above `block_utilization` changes `approve` and `warn` to `block` when `enforce_block_threshold` is true.
-- `block` and `manual-review` are not promoted.
-- If Jev is unavailable, the decision is provisional `manual-review` with confidence 0. The low-confidence policy chooses fail, warn, review, or no-op. It never approves.
-- Dropped findings are restored and marked `COST_VISIBILITY_ENFORCED`.
+* Incomplete estimates, low confidence, unpriced/partial lines, or a missing projected baseline change `approve` → `manual-review`.
+* Utilization ≥ `block_utilization` can change `approve`/`warn` → `block` when `enforce_block_threshold` is true.
+* `block` and `manual-review` are never promoted to `approve`.
+* Dropped findings are restored and marked `COST_VISIBILITY_ENFORCED`.
 
-Valid and rejected examples are in [docs/decision-contract.md](docs/decision-contract.md).
+Contract examples: [docs/decision-contract.md](docs/decision-contract.md).
 
 ## Data sent to Jev
 
-The evaluation state includes currency, environment, window, budget, utilization, baseline, delta, projected cost, source ids, warnings, and each cost line's service, resource type, change, monthly cost, and redacted address. Component names are length-limited and secrets are stripped.
+Sent: currency, environment, window, budget, utilization, baseline/delta/projected figures, source ids, warnings, and each cost line (service, type, change, monthly cost, redacted address).
 
-The state does not include cloud credentials, Terraform attribute values, private keys, pull request bodies, or raw manifest YAML. Gateway calls set `zeroDataRetention`. Resource addresses are hashed by default before they leave the runner.
+Not sent: cloud credentials, Terraform attribute values, private keys, Issue/PR bodies, or raw manifest YAML. Gateway calls set `zeroDataRetention`. Addresses are hashed by default.
 
-## Security and permissions
+## Permissions
 
-Use `contents: read`. Add `pull-requests: write` only for comments. `dry_run: true` still evaluates and writes outputs, and it skips the comment. Comments are idempotent: an existing comment that contains `<!-- jev-cloud-cost-guardian -->` is updated.
+```yaml
+permissions:
+  contents: read
+```
 
-AWS uses the standard credential chain. Azure uses client credentials. GCP uses `GCP_ACCESS_TOKEN` or a service account file. None of those values are action inputs.
+Add `pull-requests: write` only when `comment_on_github: true`.
 
-See [SECURITY.md](SECURITY.md) and [docs/connectors.md](docs/connectors.md).
+`dry_run: true` still evaluates and writes outputs; it skips the comment. Comments are idempotent via the marker `<!-- jev-cloud-cost-guardian -->`.
+
+## Security
+
+See [SECURITY.md](SECURITY.md). Summary:
+
+* Secrets are redacted from errors and never written to outputs.
+* Paths must stay inside `GITHUB_WORKSPACE`.
+* Billing SQL identifiers are validated before interpolation.
+* The Action never mutates infrastructure.
 
 ## Troubleshooting
 
-| Symptom | What it means |
-| --- | --- |
+| Symptom | Meaning |
+| ------- | ------- |
 | `budget_monthly is required` | Set the input or `.jev/config.yml` |
-| `No cost sources were configured` | Pass at least one file or enable a billing connector |
+| `No cost sources were configured` | Pass a file or enable a billing connector |
 | `Missing FX rate` | Add `fx_rates` or align currencies |
-| `Billing window is N days` | Use a calendar month or set `normalize_to_monthly` |
-| `SCHEMA_REJECTED` | Jev returned a choice outside the contract. The action failed closed |
-| `provisional=true` | Jev was not called successfully. The decision is `manual-review`, not `approve` |
-| `Path escapes workspace` | Keep estimate paths inside `GITHUB_WORKSPACE` |
-| Azure or GCP HTTP errors | The connector failed closed. It does not substitute zero |
+| `Billing window is N days` | Use a calendar month or `normalize_to_monthly` |
+| `SCHEMA_REJECTED` | Jev returned an out-of-contract choice; failed closed |
+| `provisional=true` | Jev was unavailable; decision is `manual-review` |
+| `Path escapes workspace` | Keep paths under `GITHUB_WORKSPACE` |
+
+Logs are prefixed with `[JEV Cloud Cost Guardian]`.
+
+## Versioning
+
+Prefer:
+
+```yaml
+uses: JevForge/jev-cloud-cost-guardian@v0
+```
+
+or pin a release:
+
+```yaml
+uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+```
 
 ## Development
 
 ```bash
+git clone https://github.com/JevForge/jev-cloud-cost-guardian.git
+cd jev-cloud-cost-guardian
 npm ci
-npm test
-npm run build
+npm run all
 ```
 
-Node.js 24. Tests cover parsers, schema rejection, provider normalization, low confidence, unavailable Jev, and the effect allowlist. Coverage thresholds are 80% lines and 75% branches. [CONTRIBUTING.md](CONTRIBUTING.md).
-
-The shared package `@jevforge/core` is not published yet. This action vendors the same provider contract locally: `vercel-ai-gateway`, `typesafe-native`, and `custom-compatible`.
+Node.js 24+. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Marketplace
 
-Listing metadata is in [docs/marketplace.md](docs/marketplace.md). The listing is not published.
+Listing notes: [docs/marketplace.md](docs/marketplace.md).
 
 ## License
 

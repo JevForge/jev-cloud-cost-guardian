@@ -1,0 +1,25 @@
+name: Cloud cost gate
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: cost
+        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        with:
+          budget_monthly: '1000'
+          estimates_path: examples/estimates.yml
+
+      - name: Show result
+        run: |
+          echo "decision=${{ steps.cost.outputs.decision }}"
+          echo "utilization=${{ steps.cost.outputs.utilization }}"

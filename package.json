@@ -1,7 +1,7 @@
 {
   "name": "jev-cloud-cost-guardian",
   "version": "0.1.0",
-  "description": "GitHub Action that uses Jev to approve, warn, block, or send cloud cost changes to manual review against a budget.",
+  "description": "Evaluate cloud spend against a budget and gate CI with Jev (approve, warn, block, or review).",
   "private": true,
   "type": "module",
   "engines": {
@@ -21,9 +21,19 @@
     "typesafe",
     "finops",
     "cloud-cost",
+    "budget",
+    "ci-cd",
     "jevforge"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JevForge/jev-cloud-cost-guardian.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JevForge/jev-cloud-cost-guardian/issues"
+  },
+  "homepage": "https://github.com/JevForge/jev-cloud-cost-guardian#readme",
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.1",

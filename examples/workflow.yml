@@ -15,9 +15,11 @@ jobs:
 
       - name: Infracost breakdown
         run: infracost breakdown --path . --format json --out-file infracost.json
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
 
-      - name: JEV Cloud Cost Guardian
-        uses: JevForge/jev-cloud-cost-guardian@v1
+      - id: cost
+        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
         with:
@@ -27,3 +29,9 @@ jobs:
           infracost_path: infracost.json
           comment_on_github: 'true'
           github_token: ${{ github.token }}
+
+      - name: Use decision
+        run: |
+          echo "decision=${{ steps.cost.outputs.decision }}"
+          echo "projected=${{ steps.cost.outputs.projected_monthly }}"
+          echo "remaining=${{ steps.cost.outputs.budget_remaining }}"

@@ -1,18 +1,29 @@
-# Security policy
+# Security Policy
 
-## Reporting
+## Supported versions
 
-Report vulnerabilities privately to the JevForge maintainers. Do not open a public issue that includes credentials, billing account identifiers, or cost exports from a private environment.
+Security fixes are applied to the latest release on the `v0` line.
 
-## Runtime guarantees
+## Reporting a vulnerability
 
-- The action reads cost evidence and writes GitHub outputs, a job summary, and an optional pull request comment.
-- It does not run Terraform, kubectl, or any cloud mutation API.
-- Jev text is not interpolated into a shell, a path, or a cloud operation.
-- Secrets are read from the environment and are redacted from errors and from the payload sent to Jev.
-- Resource addresses are hashed when `redact_resource_names` is true (the default).
-- Connector queries are built by this action. Billing table identifiers are validated before they are placed in SQL.
+Do **not** open a public Issue for secrets exposure, auth bypass, or other sensitive security problems.
 
-## Permissions
+Use GitHub’s private vulnerability reporting for this repository when available:
 
-Default the workflow token to `contents: read`. Grant `pull-requests: write` only when `comment_on_github` is true.
+**Security → Report a vulnerability**
+
+If private reporting is unavailable, contact a JevForge organization owner through GitHub without including secrets in the message body.
+
+**Never** send API keys, tokens, credentials, or private billing exports in reports.
+
+## Hardening notes (this Action)
+
+- Cost evidence paths must stay inside `GITHUB_WORKSPACE`.
+- Secrets (`AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `JEV_CUSTOM_API_KEY`, cloud credentials, `GITHUB_TOKEN`) must never be logged or written to outputs.
+- Errors are redacted before `core.setFailed`.
+- Jev responses are validated against Zod schemas. Arbitrary strings never become shell commands, paths, or cloud mutations.
+- Resource addresses are hashed when `redact_resource_names` is true (default).
+- The Action does not run Terraform, kubectl, or any cloud mutation API.
+- GCP billing table identifiers are validated before SQL interpolation.
+- Do not silently fall back across `jev_provider` values; misconfiguration fails closed.
+- Use the minimum `GITHUB_TOKEN` permissions. Enable PR comments only when needed.

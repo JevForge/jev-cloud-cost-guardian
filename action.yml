@@ -1,5 +1,5 @@
 name: JEV Cloud Cost Guardian
-description: Uses Jev to approve, warn, block, or review cloud cost changes against a budget.
+description: Evaluate cloud spend against a budget and gate CI with Jev (approve, warn, block, or review).
 author: JevForge
 branding:
   icon: dollar-sign
@@ -7,31 +7,36 @@ branding:
 
 inputs:
   budget_monthly:
-    description: Monthly budget in the budget currency. Required when omitted from .jev/config.yml.
+    description: Monthly budget in the budget currency. Required unless set in .jev/config.yml.
     required: false
   currency:
-    description: ISO 4217 budget currency. Defaults to USD when omitted from the input and from .jev/config.yml.
+    description: ISO 4217 budget currency.
     required: false
+    default: USD
   environment:
-    description: production, staging, development, sandbox, or other.
+    description: Target environment (production, staging, development, sandbox, or other).
     required: false
+    default: production
   budget_scope:
-    description: Compare the budget to projected (baseline + delta) or delta only.
+    description: Compare the budget to projected spend (baseline + delta) or to the delta only.
     required: false
+    default: projected
   window_start:
-    description: Inclusive window start (YYYY-MM-DD). Defaults to the current UTC month.
+    description: Inclusive cost window start (YYYY-MM-DD). Defaults to the first day of the current UTC month.
     required: false
   window_end:
-    description: Exclusive window end (YYYY-MM-DD). Defaults to the next UTC month.
+    description: Exclusive cost window end (YYYY-MM-DD). Defaults to the first day of the next UTC month.
     required: false
   warn_utilization:
-    description: Utilization ratio at which the evidence is labeled as approaching the budget.
+    description: Utilization ratio that marks evidence as approaching the budget (for example 0.8).
     required: false
+    default: '0.8'
   block_utilization:
-    description: Utilization ratio at which approve and warn are tightened to block.
+    description: Utilization ratio that can tighten approve/warn to block (for example 1.0).
     required: false
+    default: '1'
   estimates_path:
-    description: Workspace path to normalized cost estimates (JSON or YAML).
+    description: Workspace-relative path to normalized cost estimates (JSON or YAML).
     required: false
   estimates_json:
     description: Inline normalized estimates JSON. Do not combine with estimates_path.
@@ -46,20 +51,20 @@ inputs:
     description: YAML catalog that prices Terraform resource changes.
     required: false
   kubernetes_paths:
-    description: Comma or newline separated manifest files or directories.
+    description: Comma or newline separated Kubernetes manifest files or directories.
     required: false
   k8s_unit_prices_path:
-    description: YAML file with cpu_per_month and memory_gib_per_month. Required with kubernetes_paths.
+    description: YAML with cpu_per_month and memory_gib_per_month. Required when kubernetes_paths is set.
     required: false
   kubecost_path:
     description: Path to a Kubecost allocation JSON export.
     required: false
   aws_enabled:
-    description: Read AWS Cost Explorer for the window. Requires standard AWS credentials.
+    description: Read AWS Cost Explorer for the window. Uses the standard AWS credential chain.
     required: false
     default: 'false'
   include_aws_forecast:
-    description: Add an informational AWS forecast line. It is not added to the budget total.
+    description: Add an informational AWS forecast line (not added into the budget total).
     required: false
     default: 'false'
   azure_enabled:
@@ -87,47 +92,57 @@ inputs:
     required: false
     default: US
   normalize_to_monthly:
-    description: Scale non-month billing windows to a 30.4375-day month. Calendar months are not scaled.
+    description: Scale non-calendar-month billing windows to a 30.4375-day month. Calendar months are not scaled.
     required: false
     default: 'false'
   fx_rates:
-    description: JSON map of source currency to budget-currency multiplier. Example {"EUR":1.08}.
+    description: JSON map of source currency → budget-currency multiplier (example {"EUR":1.08}).
     required: false
   min_confidence:
-    description: Minimum Jev confidence required before an approve decision can stand.
+    description: Minimum Jev confidence (0–1) required before an approve decision can stand.
     required: false
+    default: '0.75'
   low_confidence_policy:
-    description: fail, warn, request-review, or no-op. Default fail. Never turns into approve.
+    description: Behavior when confidence is low or Jev is unavailable (fail, warn, request-review, no-op). Never becomes approve.
     required: false
+    default: fail
   enforce_block_threshold:
     description: When true, utilization at or above block_utilization tightens approve and warn to block.
     required: false
+    default: 'true'
   allow_unpriced:
     description: When false, unpriced lines prevent an approve decision.
     required: false
+    default: 'false'
   allow_partial:
     description: When false, partial lines prevent an approve decision.
     required: false
+    default: 'false'
   allow_missing_baseline:
-    description: When false, projected scope cannot be approved without a baseline.
+    description: When false, projected scope cannot be approved without a known baseline.
     required: false
+    default: 'false'
   fail_on_block:
     description: Fail the workflow when the final decision is block.
     required: false
+    default: 'true'
   fail_on_manual_review:
     description: Fail the workflow when the final decision is manual-review.
     required: false
+    default: 'false'
   redact_resource_names:
-    description: Replace resource addresses with stable hashes before Jev and in outputs.
+    description: Replace resource addresses with stable hashes before calling Jev and in outputs.
     required: false
+    default: 'true'
   jev_provider:
-    description: vercel-ai-gateway, typesafe-native, or custom-compatible. Default vercel-ai-gateway.
+    description: How to reach Jev (vercel-ai-gateway, typesafe-native, or custom-compatible). Not a cloud billing provider.
     required: false
+    default: vercel-ai-gateway
   jev_endpoint:
     description: HTTPS evaluate endpoint. Required for typesafe-native and custom-compatible.
     required: false
   jev_model:
-    description: Jev model id. Gateway default is typesafe-ai/jev. Required for the other providers.
+    description: Jev model id. Gateway default is typesafe-ai/jev. Required for typesafe-native and custom-compatible.
     required: false
   timeout_ms:
     description: Jev request timeout in milliseconds.
@@ -138,10 +153,11 @@ inputs:
     required: false
     default: '20000'
   comment_on_github:
-    description: Post or update a pull request comment. Requires pull-requests:write.
+    description: Post or update a pull request comment. Requires pull-requests: write.
     required: false
+    default: 'false'
   dry_run:
-    description: Skip the pull request comment.
+    description: Evaluate and emit outputs, but skip the pull request comment.
     required: false
     default: 'false'
   github_token:
@@ -151,13 +167,13 @@ inputs:
 
 outputs:
   decision:
-    description: approve, warn, block, or manual-review.
+    description: Final gate decision (approve, warn, block, or manual-review).
   confidence:
-    description: Confidence between 0 and 1.
+    description: Confidence score between 0 and 1.
   reason_codes:
     description: JSON array of stable reason codes.
   estimated_monthly_impact:
-    description: Proposed monthly delta.
+    description: Proposed monthly cost delta.
   baseline_monthly:
     description: Known monthly baseline, or empty when unknown.
   projected_monthly:
@@ -169,17 +185,17 @@ outputs:
   utilization:
     description: Scoped cost divided by budget, or empty when it cannot be computed.
   currency:
-    description: Budget currency.
+    description: Budget currency (ISO 4217).
   summary:
-    description: One-line summary.
+    description: One-line summary suitable for logs.
   explanation:
-    description: Short explanation. It is never executed.
+    description: Short human-readable explanation. Never executed as a command.
   provisional:
     description: true when Jev did not return a usable typed decision.
   findings:
     description: JSON array of every cost line. Lines are never dropped.
   sources:
-    description: JSON array of source ids.
+    description: JSON array of cost source ids.
   unpriced_count:
     description: Number of lines with no monthly cost.
 
