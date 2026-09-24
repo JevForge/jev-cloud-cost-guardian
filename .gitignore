@@ -1,0 +1,10 @@
+node_modules/
+lib/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.jev/local/
+*.tsbuildinfo

@@ -1,0 +1,14 @@
+budget_monthly: 1000
+currency: USD
+environment: production
+budget_scope: projected
+warn_utilization: 0.8
+block_utilization: 1
+min_confidence: 0.75
+low_confidence_policy: fail
+enforce_block_threshold: true
+allow_unpriced: false
+allow_partial: false
+allow_missing_baseline: false
+redact_resource_names: true
+jev_provider: vercel-ai-gateway

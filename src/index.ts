@@ -1,0 +1,202 @@
+import * as core from '@actions/core';
+import * as github from '@actions/github';
+import { z } from 'zod';
+import {
+  loadGuardianConfig,
+  pickBoolean,
+  pickBudgetScope,
+  pickEnvironment,
+  pickNumber,
+  pickPolicy,
+  pickProvider,
+  pickString,
+  splitPaths,
+} from './collectors/config.js';
+import { loadCostReport } from './collectors/load.js';
+import { applyOutcome } from './github/outputs.js';
+import { runCostGuardian } from './run.js';
+import { defaultWindow } from './utils/money.js';
+import { safeError } from './utils/sanitize.js';
+import type { CommentClient } from './executors/effects.js';
+
+function env(name: string): string | undefined {
+  const value = process.env[name];
+  return value?.trim() ? value : undefined;
+}
+
+function resolveApiKey(provider: string): string | undefined {
+  if (provider === 'vercel-ai-gateway') return env('AI_GATEWAY_API_KEY');
+  if (provider === 'typesafe-native') return env('TYPESAFE_API_KEY');
+  return env('JEV_CUSTOM_API_KEY') || env('CUSTOM_JEV_API_KEY');
+}
+
+async function main(): Promise<void> {
+  const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
+  const config = loadGuardianConfig(workspace);
+  const jevProvider = pickProvider(core.getInput('jev_provider'), config);
+  const currency = (pickString(core.getInput('currency'), config.currency, 'USD') ?? 'USD').toUpperCase();
+  const environment = pickEnvironment(core.getInput('environment'), config);
+  const budgetText = pickString(core.getInput('budget_monthly'), config.budget_monthly?.toString());
+  if (!budgetText) throw new Error('budget_monthly is required via input or .jev/config.yml');
+  const budgetMonthly = Number(budgetText);
+  if (!Number.isFinite(budgetMonthly) || budgetMonthly < 0) {
+    throw new Error('budget_monthly must be a non-negative number');
+  }
+  const fallbackWindow = defaultWindow();
+  const window = {
+    start: pickString(core.getInput('window_start'), config.window_start, fallbackWindow.start) ?? fallbackWindow.start,
+    end: pickString(core.getInput('window_end'), config.window_end, fallbackWindow.end) ?? fallbackWindow.end,
+  };
+  const fxRaw = core.getInput('fx_rates').trim();
+  const fxRates = fxRaw
+    ? z.record(z.number().positive()).parse(JSON.parse(fxRaw) as unknown)
+    : (config.fx_rates ?? {});
+  const estimatesJson = core.getInput('estimates_json').trim();
+  const estimatesPath = pickString(core.getInput('estimates_path'), config.estimates_path);
+  if (estimatesJson && estimatesPath) {
+    throw new Error('Pass estimates_json or estimates_path, not both');
+  }
+  const kubernetesPaths = splitPaths(core.getInput('kubernetes_paths'));
+  const awsEnabled = pickBoolean(core.getInput('aws_enabled'), undefined, false);
+  const azureEnabled = pickBoolean(core.getInput('azure_enabled'), undefined, false);
+  const gcpEnabled = pickBoolean(core.getInput('gcp_enabled'), undefined, false);
+
+  core.info(`Jev provider: ${jevProvider}`);
+  core.info(
+    'Data sent to Jev: cost lines, budget, utilization, environment, and window. Credentials, secrets, and raw Terraform attributes are not sent.',
+  );
+
+  const report = await loadCostReport({
+    workspace,
+    environment,
+    currency,
+    window,
+    normalizeToMonthly: pickBoolean(core.getInput('normalize_to_monthly'), config.normalize_to_monthly, false),
+    budgetMonthly,
+    warnUtilization: pickNumber(core.getInput('warn_utilization'), config.warn_utilization, 0.8),
+    blockUtilization: pickNumber(core.getInput('block_utilization'), config.block_utilization, 1),
+    budgetScope: pickBudgetScope(core.getInput('budget_scope'), config),
+    fxRates,
+    estimatesPath,
+    estimatesDocument: estimatesJson ? (JSON.parse(estimatesJson) as unknown) : undefined,
+    infracostPath: pickString(core.getInput('infracost_path'), config.infracost_path),
+    terraformPlanPath: pickString(core.getInput('terraform_plan_path'), config.terraform_plan_path),
+    pricingCatalogPath: pickString(core.getInput('pricing_catalog_path'), config.pricing_catalog_path),
+    kubernetesPaths: kubernetesPaths.length ? kubernetesPaths : (config.kubernetes_paths ?? []),
+    k8sUnitPricesPath: pickString(core.getInput('k8s_unit_prices_path'), config.k8s_unit_prices_path),
+    kubecostPath: pickString(core.getInput('kubecost_path'), config.kubecost_path),
+    aws: {
+      enabled: awsEnabled,
+      includeForecast: pickBoolean(core.getInput('include_aws_forecast'), config.include_aws_forecast, false),
+    },
+    azure: {
+      enabled: azureEnabled,
+      timeoutMs: pickNumber(core.getInput('connector_timeout_ms'), undefined, 20_000),
+      credentials: azureEnabled
+        ? {
+            tenantId: env('AZURE_TENANT_ID') ?? '',
+            clientId: env('AZURE_CLIENT_ID') ?? '',
+            clientSecret: env('AZURE_CLIENT_SECRET') ?? '',
+            subscriptionId: pickString(core.getInput('azure_subscription_id'), env('AZURE_SUBSCRIPTION_ID')) ?? '',
+          }
+        : undefined,
+    },
+    gcp: {
+      enabled: gcpEnabled,
+      timeoutMs: pickNumber(core.getInput('connector_timeout_ms'), undefined, 20_000),
+      accessToken: env('GCP_ACCESS_TOKEN'),
+      credentialsPath: env('GOOGLE_APPLICATION_CREDENTIALS'),
+      target: gcpEnabled
+        ? {
+            projectId: pickString(core.getInput('gcp_project_id'), env('GCP_PROJECT_ID')) ?? '',
+            dataset: pickString(core.getInput('gcp_billing_dataset'), env('GCP_BILLING_DATASET')) ?? '',
+            table: pickString(core.getInput('gcp_billing_table'), env('GCP_BILLING_TABLE')) ?? '',
+            location: pickString(core.getInput('gcp_location'), env('GCP_LOCATION'), 'US') ?? 'US',
+          }
+        : undefined,
+    },
+  });
+
+  const commentOnGithub = pickBoolean(core.getInput('comment_on_github'), config.comment_on_github, false);
+  const dryRun = pickBoolean(core.getInput('dry_run'), undefined, false);
+  const token = core.getInput('github_token') || process.env.GITHUB_TOKEN;
+  const issueNumber = github.context.payload.pull_request?.number ?? github.context.issue?.number;
+  const commentClient: CommentClient | null =
+    commentOnGithub && !dryRun && token && issueNumber
+      ? {
+          async listComments() {
+            const octokit = github.getOctokit(token);
+            const comments = await octokit.rest.issues.listComments({
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            return comments.data.map(comment => ({ id: comment.id, body: comment.body ?? '' }));
+          },
+          async createComment(body: string) {
+            const octokit = github.getOctokit(token);
+            await octokit.rest.issues.createComment({
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
+              issue_number: issueNumber,
+              body,
+            });
+          },
+          async updateComment(id: number, body: string) {
+            const octokit = github.getOctokit(token);
+            await octokit.rest.issues.updateComment({
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
+              comment_id: id,
+              body,
+            });
+          },
+        }
+      : null;
+
+  const result = await runCostGuardian({
+    report,
+    minConfidence: pickNumber(core.getInput('min_confidence'), config.min_confidence, 0.75),
+    lowConfidencePolicy: pickPolicy(core.getInput('low_confidence_policy'), config),
+    enforceBlockThreshold: pickBoolean(core.getInput('enforce_block_threshold'), config.enforce_block_threshold, true),
+    allowUnpriced: pickBoolean(core.getInput('allow_unpriced'), config.allow_unpriced, false),
+    allowPartial: pickBoolean(core.getInput('allow_partial'), config.allow_partial, false),
+    allowMissingBaseline: pickBoolean(
+      core.getInput('allow_missing_baseline'),
+      config.allow_missing_baseline,
+      false,
+    ),
+    failOnBlock: pickBoolean(core.getInput('fail_on_block'), config.fail_on_block, true),
+    failOnManualReview: pickBoolean(core.getInput('fail_on_manual_review'), config.fail_on_manual_review, false),
+    jevProvider,
+    jevEndpoint: pickString(core.getInput('jev_endpoint'), config.jev_endpoint),
+    jevModel: pickString(core.getInput('jev_model'), config.jev_model),
+    timeoutMs: pickNumber(core.getInput('timeout_ms'), undefined, 45_000),
+    apiKey: resolveApiKey(jevProvider),
+    redactResourceNames: pickBoolean(core.getInput('redact_resource_names'), config.redact_resource_names, true),
+    commentOnGithub,
+    dryRun,
+    commentClient,
+  });
+
+  await applyOutcome(
+    {
+      setOutput: (name, value) => core.setOutput(name, value),
+      setFailed: message => core.setFailed(message),
+      warning: message => core.warning(message),
+      info: message => core.info(message),
+      summary: async markdown => {
+        await core.summary.addRaw(markdown).write();
+      },
+    },
+    result.outcome,
+    result.markdown,
+  );
+  core.info(`Comment: ${result.commentStatus}`);
+  core.info(`Effects: ${result.effects.join(', ')}`);
+}
+
+main().catch(error => {
+  core.setFailed(safeError(error));
+});

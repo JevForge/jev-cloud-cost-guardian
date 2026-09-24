@@ -1,0 +1,9 @@
+currency: USD
+environment: production
+baseline_monthly: 800
+lines:
+  - service: Amazon EC2
+    resource_type: aws_instance
+    address: aws_instance.web
+    change: create
+    monthly_cost: 42.5

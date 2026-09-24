@@ -1,0 +1,6 @@
+currency: USD
+rules:
+  - type: aws_instance
+    monthly_cost: 7.59
+    when:
+      instance_type: t3.micro

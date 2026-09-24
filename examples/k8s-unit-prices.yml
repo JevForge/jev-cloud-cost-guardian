@@ -1,0 +1,5 @@
+currency: USD
+cpu_per_month: 15
+memory_gib_per_month: 2
+daemonset_node_count: 3
+cronjob_monthly_runs: 30
