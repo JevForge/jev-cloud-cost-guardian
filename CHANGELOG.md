@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.13.0]
+
+### Added
+
+* End-to-end smoke test with golden estimates fixture and a mocked Jev provider (`tests/e2e/smoke.test.ts`).
+
 ## [0.12.0]
 
 ### Changed
