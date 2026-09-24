@@ -1,0 +1,23 @@
+{
+  "currency": "USD",
+  "projects": [
+    {
+      "name": "demo",
+      "breakdown": {
+        "resources": [
+          {
+            "name": "aws_instance.web",
+            "resourceType": "aws_instance",
+            "monthlyCost": "7.59",
+            "costComponents": [{ "name": "Instance usage (Linux/UNIX, on-demand, t3.micro)", "monthlyCost": "7.59" }]
+          },
+          {
+            "name": "aws_s3_bucket.logs",
+            "resourceType": "aws_s3_bucket",
+            "monthlyCost": "0.023"
+          }
+        ]
+      }
+    }
+  ]
+}

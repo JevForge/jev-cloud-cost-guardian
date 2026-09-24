@@ -37,6 +37,12 @@ rules:
       instance_type: t3.micro
 ```
 
+Generate a starter catalog from an Infracost JSON export:
+
+```bash
+npm run catalog:from-infracost -- infracost.json pricing-catalog.yml
+```
+
 Creates use the after-price, deletes use the negative before-price, and updates use after minus before. A missing side is unpriced rather than guessed. Sensitive attribute names are not sent to Jev. When the same address is priced by Infracost, the Infracost line wins.
 
 ## Kubernetes and Kubecost
