@@ -49,6 +49,11 @@ Creates use the after-price, deletes use the negative before-price, and updates 
 
 Manifests need `k8s_unit_prices_path` with `cpu_per_month` and `memory_gib_per_month`. DaemonSets need `daemonset_node_count`. CronJobs need `cronjob_monthly_runs`. Init containers are listed as partial and are not priced unless `include_init_containers` is true.
 
+Optional flags in the unit-prices file:
+
+* `use_resource_limits: true` — use `max(requests, limits)` per container; missing limits mark the line `partial` with `LIMITS_MISSING`.
+* `prefer_hpa_max_replicas: true` — when an HPA targets a Deployment/StatefulSet, use `maxReplicas` instead of `spec.replicas`; missing HPA marks `HPA_MAX_UNKNOWN`.
+
 Kubecost allocation JSON is a baseline. Its `totalCost` is monthly unless the file includes a `window`, in which case the shared month rules apply. Summing Kubecost with a cloud bill can double-count a cluster; the report warns and still shows both.
 
 ## AWS Cost Explorer

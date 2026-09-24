@@ -187,6 +187,73 @@ spec:
     expect(unknown.lines.find(item => item.resource_type === 'CronJob')?.detail_code).toBe('CRONJOB_SCHEDULE_UNKNOWN');
   });
 
+  it('uses resource limits and HPA maxReplicas when configured', () => {
+    const yaml = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: payments
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: payments
+spec:
+  maxReplicas: 5
+  scaleTargetRef:
+    kind: Deployment
+    name: api
+`;
+    const withLimits = parseKubernetesYaml(
+      yaml,
+      { ...prices, use_resource_limits: true, prefer_hpa_max_replicas: true },
+      'production',
+    );
+    const deployment = withLimits.lines.find(item => item.address === 'payments/Deployment/api');
+    // max(0.25,1)=1 cpu * 5 * 10 + max(0.5,1)=1 GiB * 5 * 2 = 50+10=60
+    expect(deployment?.monthly_cost).toBe(60);
+    expect(deployment?.partial).toBe(false);
+
+    const missingHpa = parseKubernetesYaml(
+      `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solo
+  namespace: payments
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+`,
+      { ...prices, prefer_hpa_max_replicas: true },
+      'production',
+    );
+    expect(missingHpa.lines[0]?.detail_code).toBe('HPA_MAX_UNKNOWN');
+    expect(missingHpa.lines[0]?.partial).toBe(true);
+  });
+
   it('reads Kubecost allocations', () => {
     const result = parseKubecostDocument(
       { data: [{ payments: { name: 'payments', totalCost: 42, cpuCost: 30, ramCost: 12 } }] },

@@ -28041,7 +28041,9 @@ var init_enums = __esm({
       "NO_MATCHING_PRICE",
       "UPDATE_PRICE_INCOMPLETE",
       "BASELINE_SUPERSEDED",
-      "RESOURCE_EXCLUDED"
+      "RESOURCE_EXCLUDED",
+      "LIMITS_MISSING",
+      "HPA_MAX_UNKNOWN"
     ];
     REASON_CODES = [
       "WITHIN_BUDGET",
@@ -35687,7 +35689,9 @@ function parseUnitPrices(document2, fallbackCurrency) {
     memory_gib_per_month: parsed.memory_gib_per_month,
     daemonset_node_count: parsed.daemonset_node_count,
     cronjob_monthly_runs: parsed.cronjob_monthly_runs,
-    include_init_containers: parsed.include_init_containers ?? false
+    include_init_containers: parsed.include_init_containers ?? false,
+    use_resource_limits: parsed.use_resource_limits ?? false,
+    prefer_hpa_max_replicas: parsed.prefer_hpa_max_replicas ?? false
   };
 }
 function parseCpuCores(value) {
@@ -35722,20 +35726,34 @@ function parseMemoryGiB(value) {
   };
   return amount * (factors[unit] ?? 1) / 1024 ** 3;
 }
-function requestsOf(containers) {
+function resourcesOf(containers, useLimits) {
   let cpu = 0;
   let memory = 0;
   let partial2 = false;
+  let missingLimits = false;
   for (const container of containers ?? []) {
     const cpuRequest = parseCpuCores(container.resources?.requests?.cpu);
     const memoryRequest = parseMemoryGiB(container.resources?.requests?.memory);
-    if (cpuRequest == null || memoryRequest == null) partial2 = true;
-    cpu += cpuRequest ?? 0;
-    memory += memoryRequest ?? 0;
+    const cpuLimit = parseCpuCores(container.resources?.limits?.cpu);
+    const memoryLimit = parseMemoryGiB(container.resources?.limits?.memory);
+    if (useLimits) {
+      if (cpuLimit == null || memoryLimit == null) missingLimits = true;
+      const cpuVal = Math.max(cpuRequest ?? 0, cpuLimit ?? 0);
+      const memVal = Math.max(memoryRequest ?? 0, memoryLimit ?? 0);
+      if (cpuRequest == null && cpuLimit == null || memoryRequest == null && memoryLimit == null) {
+        partial2 = true;
+      }
+      cpu += cpuVal;
+      memory += memVal;
+    } else {
+      if (cpuRequest == null || memoryRequest == null) partial2 = true;
+      cpu += cpuRequest ?? 0;
+      memory += memoryRequest ?? 0;
+    }
   }
-  return { cpu, memory, partial: partial2 };
+  return { cpu, memory, partial: partial2, missingLimits };
 }
-function pushWorkload(lines, doc, prices, environment) {
+function pushWorkload(lines, doc, prices, environment, hpaMaxByTarget) {
   const kind = doc.kind ?? "Workload";
   const name25 = doc.metadata?.name ?? "unnamed";
   const namespace = doc.metadata?.namespace ?? "default";
@@ -35743,13 +35761,22 @@ function pushWorkload(lines, doc, prices, environment) {
   const podSpec = kind === "CronJob" ? doc.spec?.jobTemplate?.spec?.template?.spec : kind === "Pod" ? doc.spec : doc.spec?.template?.spec;
   const containers = podSpec?.containers;
   const initContainers = podSpec?.initContainers;
-  const base = requestsOf(containers);
+  const base = resourcesOf(containers, prices.use_resource_limits);
   let replicas = doc.spec?.replicas ?? doc.spec?.parallelism ?? doc.spec?.jobTemplate?.spec?.parallelism ?? 1;
   let multiplier = 1;
   let monthly = null;
   let detail;
   let partial2 = base.partial;
   let unpricedReason;
+  if (prices.prefer_hpa_max_replicas) {
+    const hpaMax = hpaMaxByTarget.get(`${namespace}/${kind}/${name25}`);
+    if (hpaMax != null) {
+      replicas = hpaMax;
+    } else if (kind === "Deployment" || kind === "StatefulSet") {
+      partial2 = true;
+      detail = detail ?? "HPA_MAX_UNKNOWN";
+    }
+  }
   if (kind === "DaemonSet") {
     if (!prices.daemonset_node_count) {
       unpricedReason = "DAEMONSET_NODE_COUNT_UNKNOWN";
@@ -35764,10 +35791,14 @@ function pushWorkload(lines, doc, prices, environment) {
       multiplier = prices.cronjob_monthly_runs;
     }
   }
-  const init = requestsOf(initContainers);
+  const init = resourcesOf(initContainers, prices.use_resource_limits);
   if ((initContainers?.length ?? 0) > 0 && !prices.include_init_containers) {
     partial2 = true;
-    detail = "INIT_CONTAINER_NOT_PRICED";
+    detail = detail ?? "INIT_CONTAINER_NOT_PRICED";
+  }
+  if (prices.use_resource_limits && (base.missingLimits || init.missingLimits)) {
+    partial2 = true;
+    detail = detail ?? "LIMITS_MISSING";
   }
   if (!unpricedReason) {
     const runCpu = base.cpu + (prices.include_init_containers ? init.cpu : 0);
@@ -35812,13 +35843,29 @@ function pushWorkload(lines, doc, prices, environment) {
     })
   );
 }
+function collectHpaMax(documents) {
+  const map3 = /* @__PURE__ */ new Map();
+  for (const document2 of documents) {
+    if (!document2 || typeof document2 !== "object") continue;
+    const doc = document2;
+    if (doc.kind !== "HorizontalPodAutoscaler") continue;
+    const namespace = doc.metadata?.namespace ?? "default";
+    const kind = doc.spec?.scaleTargetRef?.kind;
+    const name25 = doc.spec?.scaleTargetRef?.name;
+    const maxReplicas = doc.spec?.maxReplicas;
+    if (!kind || !name25 || maxReplicas == null || !Number.isFinite(maxReplicas)) continue;
+    map3.set(`${namespace}/${kind}/${name25}`, maxReplicas);
+  }
+  return map3;
+}
 function parseKubernetesManifests(documents, prices, environment) {
   const lines = [];
+  const hpaMaxByTarget = collectHpaMax(documents);
   for (const document2 of documents) {
     if (!document2 || typeof document2 !== "object") continue;
     const doc = document2;
     if (!doc.kind || !WORKLOADS.has(doc.kind)) continue;
-    pushWorkload(lines, doc, prices, environment);
+    pushWorkload(lines, doc, prices, environment, hpaMaxByTarget);
   }
   if (lines.length > 5e3) throw new Error(`Refusing to truncate ${lines.length} Kubernetes cost lines`);
   return {
@@ -35908,7 +35955,9 @@ var init_kubernetes = __esm({
       memory_gib_per_month: external_exports.number().finite().nonnegative(),
       daemonset_node_count: external_exports.number().int().positive().optional(),
       cronjob_monthly_runs: external_exports.number().finite().positive().optional(),
-      include_init_containers: external_exports.boolean().optional()
+      include_init_containers: external_exports.boolean().optional(),
+      use_resource_limits: external_exports.boolean().optional(),
+      prefer_hpa_max_replicas: external_exports.boolean().optional()
     }).strict();
     WORKLOADS = /* @__PURE__ */ new Set(["Deployment", "StatefulSet", "ReplicaSet", "DaemonSet", "Job", "CronJob", "Pod"]);
   }

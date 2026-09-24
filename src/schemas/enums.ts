@@ -60,6 +60,8 @@ export const DETAIL_CODES = [
   'UPDATE_PRICE_INCOMPLETE',
   'BASELINE_SUPERSEDED',
   'RESOURCE_EXCLUDED',
+  'LIMITS_MISSING',
+  'HPA_MAX_UNKNOWN',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 

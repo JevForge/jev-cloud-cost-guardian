@@ -15,6 +15,8 @@ const PricesSchema = z
     daemonset_node_count: z.number().int().positive().optional(),
     cronjob_monthly_runs: z.number().finite().positive().optional(),
     include_init_containers: z.boolean().optional(),
+    use_resource_limits: z.boolean().optional(),
+    prefer_hpa_max_replicas: z.boolean().optional(),
   })
   .strict();
 
@@ -25,6 +27,8 @@ export interface K8sUnitPrices {
   daemonset_node_count?: number;
   cronjob_monthly_runs?: number;
   include_init_containers: boolean;
+  use_resource_limits: boolean;
+  prefer_hpa_max_replicas: boolean;
 }
 
 export function parseUnitPrices(document: unknown, fallbackCurrency: string): K8sUnitPrices {
@@ -36,6 +40,8 @@ export function parseUnitPrices(document: unknown, fallbackCurrency: string): K8
     daemonset_node_count: parsed.daemonset_node_count,
     cronjob_monthly_runs: parsed.cronjob_monthly_runs,
     include_init_containers: parsed.include_init_containers ?? false,
+    use_resource_limits: parsed.use_resource_limits ?? false,
+    prefer_hpa_max_replicas: parsed.prefer_hpa_max_replicas ?? false,
   };
 }
 
@@ -75,7 +81,10 @@ export function parseMemoryGiB(value: unknown): number | null {
 
 interface ContainerSpec {
   name?: string;
-  resources?: { requests?: { cpu?: unknown; memory?: unknown } };
+  resources?: {
+    requests?: { cpu?: unknown; memory?: unknown };
+    limits?: { cpu?: unknown; memory?: unknown };
+  };
 }
 
 interface WorkloadDoc {
@@ -84,6 +93,8 @@ interface WorkloadDoc {
   spec?: {
     replicas?: number;
     parallelism?: number;
+    maxReplicas?: number;
+    scaleTargetRef?: { kind?: string; name?: string; apiVersion?: string };
     template?: { spec?: { containers?: ContainerSpec[]; initContainers?: ContainerSpec[] } };
     jobTemplate?: {
       spec?: {
@@ -94,22 +105,40 @@ interface WorkloadDoc {
   };
 }
 
-function requestsOf(containers: ContainerSpec[] | undefined): {
+function resourcesOf(
+  containers: ContainerSpec[] | undefined,
+  useLimits: boolean,
+): {
   cpu: number;
   memory: number;
   partial: boolean;
+  missingLimits: boolean;
 } {
   let cpu = 0;
   let memory = 0;
   let partial = false;
+  let missingLimits = false;
   for (const container of containers ?? []) {
     const cpuRequest = parseCpuCores(container.resources?.requests?.cpu);
     const memoryRequest = parseMemoryGiB(container.resources?.requests?.memory);
-    if (cpuRequest == null || memoryRequest == null) partial = true;
-    cpu += cpuRequest ?? 0;
-    memory += memoryRequest ?? 0;
+    const cpuLimit = parseCpuCores(container.resources?.limits?.cpu);
+    const memoryLimit = parseMemoryGiB(container.resources?.limits?.memory);
+    if (useLimits) {
+      if (cpuLimit == null || memoryLimit == null) missingLimits = true;
+      const cpuVal = Math.max(cpuRequest ?? 0, cpuLimit ?? 0);
+      const memVal = Math.max(memoryRequest ?? 0, memoryLimit ?? 0);
+      if ((cpuRequest == null && cpuLimit == null) || (memoryRequest == null && memoryLimit == null)) {
+        partial = true;
+      }
+      cpu += cpuVal;
+      memory += memVal;
+    } else {
+      if (cpuRequest == null || memoryRequest == null) partial = true;
+      cpu += cpuRequest ?? 0;
+      memory += memoryRequest ?? 0;
+    }
   }
-  return { cpu, memory, partial };
+  return { cpu, memory, partial, missingLimits };
 }
 
 function pushWorkload(
@@ -117,6 +146,7 @@ function pushWorkload(
   doc: WorkloadDoc,
   prices: K8sUnitPrices,
   environment: EnvironmentName,
+  hpaMaxByTarget: Map<string, number>,
 ): void {
   const kind = doc.kind ?? 'Workload';
   const name = doc.metadata?.name ?? 'unnamed';
@@ -130,13 +160,23 @@ function pushWorkload(
         : doc.spec?.template?.spec;
   const containers = podSpec?.containers;
   const initContainers = podSpec?.initContainers;
-  const base = requestsOf(containers);
+  const base = resourcesOf(containers, prices.use_resource_limits);
   let replicas = doc.spec?.replicas ?? doc.spec?.parallelism ?? doc.spec?.jobTemplate?.spec?.parallelism ?? 1;
   let multiplier = 1;
   let monthly: number | null = null;
   let detail: DetailCode | undefined;
   let partial = base.partial;
   let unpricedReason: DetailCode | undefined;
+
+  if (prices.prefer_hpa_max_replicas) {
+    const hpaMax = hpaMaxByTarget.get(`${namespace}/${kind}/${name}`);
+    if (hpaMax != null) {
+      replicas = hpaMax;
+    } else if (kind === 'Deployment' || kind === 'StatefulSet') {
+      partial = true;
+      detail = detail ?? 'HPA_MAX_UNKNOWN';
+    }
+  }
 
   if (kind === 'DaemonSet') {
     if (!prices.daemonset_node_count) {
@@ -153,10 +193,14 @@ function pushWorkload(
     }
   }
 
-  const init = requestsOf(initContainers);
+  const init = resourcesOf(initContainers, prices.use_resource_limits);
   if ((initContainers?.length ?? 0) > 0 && !prices.include_init_containers) {
     partial = true;
-    detail = 'INIT_CONTAINER_NOT_PRICED';
+    detail = detail ?? 'INIT_CONTAINER_NOT_PRICED';
+  }
+  if (prices.use_resource_limits && (base.missingLimits || init.missingLimits)) {
+    partial = true;
+    detail = detail ?? 'LIMITS_MISSING';
   }
 
   if (!unpricedReason) {
@@ -208,17 +252,34 @@ function pushWorkload(
 
 const WORKLOADS = new Set(['Deployment', 'StatefulSet', 'ReplicaSet', 'DaemonSet', 'Job', 'CronJob', 'Pod']);
 
+function collectHpaMax(documents: unknown[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const document of documents) {
+    if (!document || typeof document !== 'object') continue;
+    const doc = document as WorkloadDoc;
+    if (doc.kind !== 'HorizontalPodAutoscaler') continue;
+    const namespace = doc.metadata?.namespace ?? 'default';
+    const kind = doc.spec?.scaleTargetRef?.kind;
+    const name = doc.spec?.scaleTargetRef?.name;
+    const maxReplicas = doc.spec?.maxReplicas;
+    if (!kind || !name || maxReplicas == null || !Number.isFinite(maxReplicas)) continue;
+    map.set(`${namespace}/${kind}/${name}`, maxReplicas);
+  }
+  return map;
+}
+
 export function parseKubernetesManifests(
   documents: unknown[],
   prices: K8sUnitPrices,
   environment: EnvironmentName,
 ): CollectResult {
   const lines: CostLine[] = [];
+  const hpaMaxByTarget = collectHpaMax(documents);
   for (const document of documents) {
     if (!document || typeof document !== 'object') continue;
     const doc = document as WorkloadDoc;
     if (!doc.kind || !WORKLOADS.has(doc.kind)) continue;
-    pushWorkload(lines, doc, prices, environment);
+    pushWorkload(lines, doc, prices, environment, hpaMaxByTarget);
   }
   if (lines.length > 5_000) throw new Error(`Refusing to truncate ${lines.length} Kubernetes cost lines`);
   return {
