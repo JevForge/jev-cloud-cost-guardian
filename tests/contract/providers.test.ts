@@ -26,7 +26,7 @@ describe('Jev providers', () => {
   });
 
   it('calls experimental_evaluate on typesafe-ai/jev and does not use generateText', async () => {
-    const source = readFileSync(new URL('../../src/jev/vercel-ai-gateway.ts', import.meta.url), 'utf8');
+    const source = readFileSync(new URL('../../src/core/jev/vercel-ai-gateway.ts', import.meta.url), 'utf8');
     expect(source).toContain('experimental_evaluate');
     expect(source).not.toContain('generateText');
     evaluate.mockResolvedValue({
