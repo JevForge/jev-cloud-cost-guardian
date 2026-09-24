@@ -20,6 +20,7 @@ export interface PolicyOptions {
   allowMissingBaseline: boolean;
   failOnBlock: boolean;
   failOnManualReview: boolean;
+  failOnWarn?: boolean;
   warnDeltaPct?: number | null;
   blockDeltaPct?: number | null;
 }
@@ -142,7 +143,11 @@ export function applyCostPolicy(decision: CostDecision, report: CostReport, opti
     return { status: 'no-op', decision: current, message: current.summary };
   }
   if (current.decision === 'warn' || (lowConfidence && options.lowConfidencePolicy === 'warn')) {
-    return { status: 'warn', decision: current, message: current.summary };
+    return {
+      status: options.failOnWarn ? 'fail' : 'warn',
+      decision: current,
+      message: current.summary,
+    };
   }
   if (current.decision === 'manual-review' || (lowConfidence && options.lowConfidencePolicy === 'request-review')) {
     return { status: 'manual-review', decision: current, message: current.summary };

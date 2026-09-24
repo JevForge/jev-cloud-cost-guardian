@@ -149,6 +149,10 @@ inputs:
     description: Fail the workflow when the final decision is manual-review.
     required: false
     default: 'false'
+  fail_on_warn:
+    description: Fail the workflow when the final decision is warn.
+    required: false
+    default: 'false'
   redact_resource_names:
     description: Replace resource addresses with stable hashes before calling Jev and in outputs.
     required: false
