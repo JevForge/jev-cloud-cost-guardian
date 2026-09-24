@@ -72,6 +72,7 @@ describe('config helpers and outputs', () => {
       decision,
     );
     expect(outputs.decision).toBe('warn');
+    expect(outputs.blocked).toBe('false');
     expect(outputs.budget_monthly).toBe('1000');
 
     await applyOutcome(

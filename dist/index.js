@@ -68525,6 +68525,7 @@ async function loadCostReport(request) {
 // src/github/outputs.ts
 function writeDecisionOutputs(writer, decision) {
   writer.setOutput("decision", decision.decision);
+  writer.setOutput("blocked", decision.decision === "block" ? "true" : "false");
   writer.setOutput("confidence", String(decision.confidence));
   writer.setOutput("reason_codes", JSON.stringify(decision.reason_codes));
   writer.setOutput("estimated_monthly_impact", String(decision.delta_monthly));

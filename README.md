@@ -239,6 +239,7 @@ Connector details: [docs/connectors.md](docs/connectors.md).
 | Output | Description |
 | ------ | ----------- |
 | `decision` | `approve`, `warn`, `block`, or `manual-review` |
+| `blocked` | `true` when decision is `block`, else `false` |
 | `confidence` | 0–1 |
 | `reason_codes` | JSON array of stable codes |
 | `estimated_monthly_impact` | Proposed monthly delta |
@@ -268,6 +269,10 @@ Connector details: [docs/connectors.md](docs/connectors.md).
 - name: Require FinOps review
   if: steps.cost.outputs.decision == 'manual-review'
   run: echo "Send to FinOps"
+
+- name: Stop on hard block
+  if: steps.cost.outputs.blocked == 'true'
+  run: echo "Budget exceeded"
 ```
 
 ## Authentication

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.16.0]
+
+### Added
+
+* Output `blocked` (`true`/`false`) for `if: steps.cost.outputs.blocked == 'true'` conditions without breaking existing `decision` checks.
+
 ## [0.15.0]
 
 ### Added
