@@ -19,7 +19,7 @@ jobs:
           INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
 
       - id: cost
-        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+        uses: JevForge/jev-cloud-cost-guardian@v0
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
         with:

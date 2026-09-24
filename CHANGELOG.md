@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.14.0]
+
+### Changed
+
+* Docs and examples now pin `uses: JevForge/jev-cloud-cost-guardian@v0`; concrete versions stay in CHANGELOG/Releases only.
+
 ## [0.13.0]
 
 ### Added

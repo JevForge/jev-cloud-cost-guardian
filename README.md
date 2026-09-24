@@ -10,7 +10,7 @@ Infrastructure PRs often ship without a clear cost signal. This Action collects 
 
 ```yaml
 - id: cost
-  uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+  uses: JevForge/jev-cloud-cost-guardian@v0
   env:
     AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
   with:
@@ -100,7 +100,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: cost
-        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+        uses: JevForge/jev-cloud-cost-guardian@v0
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
         with:
@@ -114,7 +114,7 @@ jobs:
           echo "summary=${{ steps.cost.outputs.summary }}"
 ```
 
-Pin `@v0.1.0`, the floating major `@v0`, or a full commit SHA.
+Pin the floating major `@v0` (recommended) or a full commit SHA. Concrete versions are listed only in the CHANGELOG and GitHub Releases.
 
 Defaults can also live in `.jev/config.yml`. A workflow input wins when it is set.
 
@@ -157,7 +157,7 @@ jobs:
           INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
 
       - id: cost
-        uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+        uses: JevForge/jev-cloud-cost-guardian@v0
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
         with:
@@ -364,7 +364,7 @@ uses: JevForge/jev-cloud-cost-guardian@v0
 or pin a release:
 
 ```yaml
-uses: JevForge/jev-cloud-cost-guardian@v0.1.0
+uses: JevForge/jev-cloud-cost-guardian@v0
 ```
 
 ## Development
