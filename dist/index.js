@@ -83991,4 +83991,3 @@ main().catch((error2) => {
   const message = safeError(error2);
   core.setFailed(message.startsWith(LOG) ? message : `${LOG} ${message}`);
 });
-//# sourceMappingURL=index.js.map
