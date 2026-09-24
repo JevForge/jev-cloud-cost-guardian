@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+
+* Optional `decision_json_path` and `sarif_path` inputs to write full decision JSON and SARIF 2.1 (findings never omitted).
+* Matching outputs echo the paths when written for use with `actions/upload-artifact`.
+
 ## [0.4.0]
 
 ### Added

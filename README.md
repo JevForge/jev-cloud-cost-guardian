@@ -253,6 +253,8 @@ Connector details: [docs/connectors.md](docs/connectors.md).
 | `findings` | JSON array of every cost line |
 | `sources` | JSON array of source ids |
 | `unpriced_count` | Lines without a monthly cost |
+| `decision_json_path` | Written path when configured, else empty |
+| `sarif_path` | Written SARIF path when configured, else empty |
 
 ### Using outputs in conditions
 

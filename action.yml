@@ -175,6 +175,12 @@ inputs:
     description: Evaluate and emit outputs, but skip comment, labels, and check run writes.
     required: false
     default: 'false'
+  decision_json_path:
+    description: Workspace-relative path to write the full decision JSON (includes every finding).
+    required: false
+  sarif_path:
+    description: Workspace-relative path to write a SARIF 2.1 report of the cost gate and findings.
+    required: false
   github_token:
     description: Token used only when comment_on_github is true.
     required: false
@@ -215,6 +221,10 @@ outputs:
     description: JSON array of cost source ids.
   unpriced_count:
     description: Number of lines with no monthly cost.
+  decision_json_path:
+    description: Path written when decision_json_path input is set, otherwise empty.
+  sarif_path:
+    description: Path written when sarif_path input is set, otherwise empty.
 
 runs:
   using: node24

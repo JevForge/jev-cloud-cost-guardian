@@ -14,6 +14,7 @@ import {
 } from './collectors/config.js';
 import { loadCostReport } from './collectors/load.js';
 import { applyOutcome } from './github/outputs.js';
+import { writeDecisionJson, writeDecisionSarif } from './github/artifacts.js';
 import { runCostGuardian } from './run.js';
 import { defaultWindow } from './utils/money.js';
 import { safeError } from './utils/sanitize.js';
@@ -268,6 +269,24 @@ async function main(): Promise<void> {
     result.outcome,
     result.markdown,
   );
+
+  const decisionJsonPath = pickString(core.getInput('decision_json_path'), config.decision_json_path);
+  if (decisionJsonPath) {
+    const written = writeDecisionJson(workspace, decisionJsonPath, result.outcome.decision);
+    core.info(`${LOG} Wrote decision JSON to ${written}`);
+    core.setOutput('decision_json_path', decisionJsonPath);
+  } else {
+    core.setOutput('decision_json_path', '');
+  }
+  const sarifPath = pickString(core.getInput('sarif_path'), config.sarif_path);
+  if (sarifPath) {
+    const written = writeDecisionSarif(workspace, sarifPath, result.outcome.decision);
+    core.info(`${LOG} Wrote SARIF to ${written}`);
+    core.setOutput('sarif_path', sarifPath);
+  } else {
+    core.setOutput('sarif_path', '');
+  }
+
   core.info(`${LOG} Comment: ${result.commentStatus}`);
   core.info(`${LOG} Labels: ${result.labelStatus}`);
   core.info(`${LOG} Check run: ${result.checkRunStatus}`);

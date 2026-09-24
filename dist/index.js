@@ -61145,7 +61145,7 @@ var require_dist_cjs11 = __commonJS({
     var { createHash: createHash6, createPrivateKey, createPublicKey, sign: sign2 } = require("node:crypto");
     var { promises } = require("node:fs");
     var { homedir: homedir2 } = require("node:os");
-    var { dirname, join: join5 } = require("node:path");
+    var { dirname: dirname2, join: join5 } = require("node:path");
     var LoginCredentialsFetcher = class _LoginCredentialsFetcher {
       profileData;
       init;
@@ -61301,7 +61301,7 @@ var require_dist_cjs11 = __commonJS({
       }
       async saveToken(token) {
         const tokenFilePath = this.getTokenFilePath();
-        const directory = dirname(tokenFilePath);
+        const directory = dirname2(tokenFilePath);
         try {
           await promises.mkdir(directory, { recursive: true });
         } catch (error2) {
@@ -67279,7 +67279,9 @@ var GuardianConfigSchema = external_exports.object({
   pricing_catalog_path: external_exports.string().optional(),
   kubernetes_paths: external_exports.array(external_exports.string()).optional(),
   k8s_unit_prices_path: external_exports.string().optional(),
-  kubecost_path: external_exports.string().optional()
+  kubecost_path: external_exports.string().optional(),
+  decision_json_path: external_exports.string().optional(),
+  sarif_path: external_exports.string().optional()
 }).strict();
 function loadGuardianConfig(workspace, relativePath = ".jev/config.yml") {
   const full = resolveInside(workspace, relativePath);
@@ -68379,6 +68381,97 @@ async function applyOutcome(writer, outcome, markdown) {
     return;
   }
   if (outcome.status === "no-op") writer.info(outcome.message);
+}
+
+// src/github/artifacts.ts
+var import_node_fs7 = require("node:fs");
+var import_node_path8 = require("node:path");
+init_sanitize();
+function writeDecisionJson(workspace, relativePath, decision) {
+  const full = resolveInside(workspace, relativePath);
+  (0, import_node_fs7.mkdirSync)((0, import_node_path8.dirname)(full), { recursive: true });
+  (0, import_node_fs7.writeFileSync)(full, `${JSON.stringify(decision, null, 2)}
+`, "utf8");
+  return full;
+}
+function sarifLevel(decision) {
+  if (decision === "block") return "error";
+  if (decision === "warn" || decision === "manual-review") return "warning";
+  return "note";
+}
+function buildSarif(decision) {
+  const results = decision.findings.map((finding) => {
+    const cost = finding.monthly_cost == null ? "unpriced" : `${finding.monthly_cost.toFixed(2)} ${finding.currency}`;
+    return {
+      ruleId: finding.unpriced ? "unpriced-resource" : finding.partial ? "partial-estimate" : "cost-line",
+      level: finding.unpriced || finding.partial ? "warning" : sarifLevel(decision.decision),
+      message: {
+        text: `${finding.change} ${finding.service}/${finding.resource_type} at ${finding.address}: ${cost}`
+      },
+      properties: {
+        id: finding.id,
+        source: finding.source,
+        change: finding.change,
+        monthly_cost: finding.monthly_cost,
+        currency: finding.currency,
+        detail_code: finding.detail_code ?? null
+      }
+    };
+  });
+  return {
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    version: "2.1.0",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "jev-cloud-cost-guardian",
+            informationUri: "https://github.com/JevForge/jev-cloud-cost-guardian",
+            rules: [
+              {
+                id: "cost-gate",
+                shortDescription: { text: "Cloud cost budget gate" },
+                fullDescription: {
+                  text: `Decision ${decision.decision} with confidence ${decision.confidence}`
+                },
+                defaultConfiguration: { level: sarifLevel(decision.decision) },
+                properties: {
+                  decision: decision.decision,
+                  reason_codes: decision.reason_codes,
+                  budget_monthly: decision.budget_monthly,
+                  utilization: decision.utilization
+                }
+              },
+              { id: "cost-line", shortDescription: { text: "Priced cost line" } },
+              { id: "unpriced-resource", shortDescription: { text: "Unpriced cost line" } },
+              { id: "partial-estimate", shortDescription: { text: "Partial cost estimate" } }
+            ]
+          }
+        },
+        results: [
+          {
+            ruleId: "cost-gate",
+            level: sarifLevel(decision.decision),
+            message: { text: decision.summary },
+            properties: {
+              decision: decision.decision,
+              confidence: decision.confidence,
+              reason_codes: decision.reason_codes,
+              findings_count: decision.findings.length
+            }
+          },
+          ...results
+        ]
+      }
+    ]
+  };
+}
+function writeDecisionSarif(workspace, relativePath, decision) {
+  const full = resolveInside(workspace, relativePath);
+  (0, import_node_fs7.mkdirSync)((0, import_node_path8.dirname)(full), { recursive: true });
+  (0, import_node_fs7.writeFileSync)(full, `${JSON.stringify(buildSarif(decision), null, 2)}
+`, "utf8");
+  return full;
 }
 
 // src/schemas/decision.ts
@@ -84038,6 +84131,22 @@ async function main() {
     result.outcome,
     result.markdown
   );
+  const decisionJsonPath = pickString(core.getInput("decision_json_path"), config2.decision_json_path);
+  if (decisionJsonPath) {
+    const written = writeDecisionJson(workspace, decisionJsonPath, result.outcome.decision);
+    core.info(`${LOG} Wrote decision JSON to ${written}`);
+    core.setOutput("decision_json_path", decisionJsonPath);
+  } else {
+    core.setOutput("decision_json_path", "");
+  }
+  const sarifPath = pickString(core.getInput("sarif_path"), config2.sarif_path);
+  if (sarifPath) {
+    const written = writeDecisionSarif(workspace, sarifPath, result.outcome.decision);
+    core.info(`${LOG} Wrote SARIF to ${written}`);
+    core.setOutput("sarif_path", sarifPath);
+  } else {
+    core.setOutput("sarif_path", "");
+  }
   core.info(`${LOG} Comment: ${result.commentStatus}`);
   core.info(`${LOG} Labels: ${result.labelStatus}`);
   core.info(`${LOG} Check run: ${result.checkRunStatus}`);
