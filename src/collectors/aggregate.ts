@@ -41,6 +41,7 @@ export interface CostReport {
   block_utilization: number;
   budget_scope: BudgetScope;
   budget_rule_name: string | null;
+  baseline_origin: 'explicit' | 'billing' | 'estimate' | null;
   unpriced_count: number;
   partial_count: number;
   sources: CostSource[];
@@ -138,9 +139,27 @@ export function aggregateCosts(input: AggregateInput): CostReport {
   }
 
   const baselineLines = lines.filter(line => line.change === 'baseline' && line.monthly_cost != null);
-  const baseline_known = baselineLines.length > 0;
+  const explicitBaselines = baselineLines.filter(line => line.address.startsWith('baseline:explicit'));
+  const billingBaselineLines = baselineLines.filter(line => BILLING_SOURCES.includes(line.source));
+  const estimateBaselines = baselineLines.filter(
+    line => !line.address.startsWith('baseline:explicit') && !BILLING_SOURCES.includes(line.source),
+  );
+  let effectiveBaselines = baselineLines;
+  let baseline_origin: CostReport['baseline_origin'] = null;
+  if (explicitBaselines.length) {
+    effectiveBaselines = explicitBaselines;
+    baseline_origin = 'explicit';
+    if (billingBaselineLines.length || estimateBaselines.length) {
+      warnings.push('Explicit baseline_path supersedes other baseline sources for the budget comparison.');
+    }
+  } else if (billingBaselineLines.length) {
+    baseline_origin = 'billing';
+  } else if (estimateBaselines.length) {
+    baseline_origin = 'estimate';
+  }
+  const baseline_known = effectiveBaselines.length > 0;
   const baseline_monthly = baseline_known
-    ? roundMoney(baselineLines.reduce((sum, line) => sum + (line.monthly_cost ?? 0), 0))
+    ? roundMoney(effectiveBaselines.reduce((sum, line) => sum + (line.monthly_cost ?? 0), 0))
     : null;
   const delta_monthly = roundMoney(
     lines
@@ -177,6 +196,7 @@ export function aggregateCosts(input: AggregateInput): CostReport {
     partial_count: lines.filter(line => line.partial).length,
     sources,
     baseline_known,
+    baseline_origin,
     converted,
     warnings,
   };

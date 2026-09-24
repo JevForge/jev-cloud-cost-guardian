@@ -41,6 +41,13 @@ inputs:
   estimates_json:
     description: Inline normalized estimates JSON. Do not combine with estimates_path.
     required: false
+  baseline_path:
+    description: Workspace-relative path to an explicit baseline file (baseline_monthly or baseline lines).
+    required: false
+  require_baseline:
+    description: Fail when budget_scope is projected and no baseline is available.
+    required: false
+    default: 'false'
   infracost_path:
     description: Path to an Infracost breakdown JSON file.
     required: false

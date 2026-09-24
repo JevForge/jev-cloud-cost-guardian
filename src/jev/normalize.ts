@@ -22,6 +22,8 @@ export function factualReasonCodes(report: CostReport): ReasonCode[] {
   if (report.delta_monthly > 0) codes.push('NEW_SPEND');
   if (report.unpriced_count > 0) codes.push('UNPRICED_RESOURCES');
   if (!report.baseline_known) codes.push('MISSING_BASELINE');
+  else if (report.baseline_origin === 'explicit') codes.push('EXPLICIT_BASELINE');
+  else if (report.baseline_origin === 'billing') codes.push('BASELINE_FROM_BILLING');
   if (report.partial_count > 0) codes.push('UNCERTAIN_ESTIMATE');
   codes.push(report.environment === 'production' ? 'PROD_ENVIRONMENT' : 'NON_PROD_ENVIRONMENT');
   if (report.sources.some(source => source === 'aws-cost-explorer' || source === 'azure-cost-management' || source === 'gcp-bigquery-billing' || source === 'kubecost')) {
