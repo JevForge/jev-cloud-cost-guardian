@@ -28040,7 +28040,8 @@ var init_enums = __esm({
       "DAEMONSET_NODE_COUNT_UNKNOWN",
       "NO_MATCHING_PRICE",
       "UPDATE_PRICE_INCOMPLETE",
-      "BASELINE_SUPERSEDED"
+      "BASELINE_SUPERSEDED",
+      "RESOURCE_EXCLUDED"
     ];
     REASON_CODES = [
       "WITHIN_BUDGET",
@@ -28064,6 +28065,7 @@ var init_enums = __esm({
       "JEV_UNAVAILABLE",
       "POLICY_MANUAL_REVIEW",
       "COST_VISIBILITY_ENFORCED",
+      "RESOURCE_FILTERED",
       "MULTI_SOURCE",
       "CURRENCY_CONVERTED",
       "WINDOW_SCALED"
@@ -67280,6 +67282,8 @@ var GuardianConfigSchema = external_exports.object({
   kubernetes_paths: external_exports.array(external_exports.string()).optional(),
   k8s_unit_prices_path: external_exports.string().optional(),
   kubecost_path: external_exports.string().optional(),
+  include_resources: external_exports.array(external_exports.string()).optional(),
+  exclude_resources: external_exports.array(external_exports.string()).optional(),
   decision_json_path: external_exports.string().optional(),
   sarif_path: external_exports.string().optional()
 }).strict();
@@ -68176,6 +68180,37 @@ function parseTerraformPlanText(text2, catalog, environment) {
   return parseTerraformPlan(parseYamlOrJson(text2, "terraform plan"), catalog, environment);
 }
 
+// src/collectors/filters.ts
+function globToRegExp2(pattern) {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, "i");
+}
+function matchesAny(line, patterns) {
+  return patterns.some((pattern) => {
+    const re = globToRegExp2(pattern);
+    return re.test(line.address) || re.test(line.resource_type) || re.test(line.service);
+  });
+}
+function applyResourceFilters(lines, filter2) {
+  const include = (filter2.include ?? []).map((item) => item.trim()).filter(Boolean);
+  const exclude = (filter2.exclude ?? []).map((item) => item.trim()).filter(Boolean);
+  if (!include.length && !exclude.length) return lines;
+  return lines.map((line) => {
+    const denied = exclude.length > 0 && matchesAny(line, exclude);
+    const allowed = include.length === 0 || matchesAny(line, include);
+    if (!denied && allowed) return line;
+    return {
+      ...line,
+      monthly_cost: null,
+      unpriced: true,
+      partial: true,
+      detail_code: "RESOURCE_EXCLUDED",
+      source_monthly_cost: line.source_monthly_cost ?? line.monthly_cost ?? void 0,
+      source_currency: line.source_currency ?? line.currency
+    };
+  });
+}
+
 // src/collectors/load.ts
 function expandKubernetes(workspace, paths) {
   const files = [];
@@ -68311,8 +68346,18 @@ async function loadCostReport(request) {
       })
     );
   }
-  const lines = results.flatMap((result) => result.lines);
+  const lines = applyResourceFilters(
+    results.flatMap((result) => result.lines),
+    {
+      include: request.includeResources,
+      exclude: request.excludeResources
+    }
+  );
   const warnings = results.flatMap((result) => result.warnings);
+  const excluded = lines.filter((line) => line.detail_code === "RESOURCE_EXCLUDED").length;
+  if (excluded) {
+    warnings.push(`${excluded} cost line(s) excluded from budget totals via include/exclude filters (still visible in findings).`);
+  }
   if (!lines.length) {
     throw new Error("No cost sources were configured. Pass estimates, a plan, or a billing connector.");
   }
@@ -68532,6 +68577,9 @@ function factualReasonCodes(report) {
     codes.push("PLAN_DELTA");
   }
   if (report.lines.some((line) => line.change === "forecast")) codes.push("FORECAST_INFORMATIONAL");
+  if (report.lines.some((line) => line.detail_code === "RESOURCE_EXCLUDED")) {
+    codes.push("RESOURCE_FILTERED");
+  }
   if (report.sources.length > 1) codes.push("MULTI_SOURCE");
   if (report.converted) codes.push("CURRENCY_CONVERTED");
   if (report.lines.some((line) => line.normalization === "window-scaled")) codes.push("WINDOW_SCALED");
@@ -83973,6 +84021,14 @@ async function main() {
     estimatesDocument: estimatesJson ? JSON.parse(estimatesJson) : void 0,
     baselinePath: pickString(core.getInput("baseline_path"), config2.baseline_path),
     requireBaseline: pickBoolean(core.getInput("require_baseline"), config2.require_baseline, false),
+    includeResources: (() => {
+      const fromInput = splitPaths(core.getInput("include_resources"));
+      return fromInput.length ? fromInput : config2.include_resources ?? [];
+    })(),
+    excludeResources: (() => {
+      const fromInput = splitPaths(core.getInput("exclude_resources"));
+      return fromInput.length ? fromInput : config2.exclude_resources ?? [];
+    })(),
     infracostPath: pickString(core.getInput("infracost_path"), config2.infracost_path),
     terraformPlanPath: pickString(core.getInput("terraform_plan_path"), config2.terraform_plan_path),
     pricingCatalogPath: pickString(core.getInput("pricing_catalog_path"), config2.pricing_catalog_path),

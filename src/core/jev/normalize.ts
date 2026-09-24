@@ -33,6 +33,9 @@ export function factualReasonCodes(report: CostReport): ReasonCode[] {
     codes.push('PLAN_DELTA');
   }
   if (report.lines.some(line => line.change === 'forecast')) codes.push('FORECAST_INFORMATIONAL');
+  if (report.lines.some(line => line.detail_code === 'RESOURCE_EXCLUDED')) {
+    codes.push('RESOURCE_FILTERED');
+  }
   if (report.sources.length > 1) codes.push('MULTI_SOURCE');
   if (report.converted) codes.push('CURRENCY_CONVERTED');
   if (report.lines.some(line => line.normalization === 'window-scaled')) codes.push('WINDOW_SCALED');

@@ -52,6 +52,8 @@ export const GuardianConfigSchema = z
     kubernetes_paths: z.array(z.string()).optional(),
     k8s_unit_prices_path: z.string().optional(),
     kubecost_path: z.string().optional(),
+    include_resources: z.array(z.string()).optional(),
+    exclude_resources: z.array(z.string()).optional(),
     decision_json_path: z.string().optional(),
     sarif_path: z.string().optional(),
   })

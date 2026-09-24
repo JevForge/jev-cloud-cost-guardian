@@ -48,6 +48,12 @@ inputs:
     description: Fail when budget_scope is projected and no baseline is available.
     required: false
     default: 'false'
+  include_resources:
+    description: Comma/newline globs; when set, only matching address/resource_type/service lines count toward the budget.
+    required: false
+  exclude_resources:
+    description: Comma/newline globs; matching lines stay visible but are excluded from budget totals.
+    required: false
   infracost_path:
     description: Path to an Infracost breakdown JSON file.
     required: false
