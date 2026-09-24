@@ -32,16 +32,27 @@ describe('retry helper', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('returns the final retryable response after exhausting attempts', async () => {
+  it('retries network-style errors and stops on non-retryable ones', async () => {
     const sleep = vi.fn(async () => undefined);
-    const fetchImpl = vi.fn(async () => new Response('busy', { status: 429 }));
-    const response = await fetchWithRetries('https://example.test', undefined, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      attempts: 3,
-      sleep,
-      baseDelayMs: 1,
-    });
-    expect(response.status).toBe(429);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    let calls = 0;
+    await expect(
+      withRetries(
+        async () => {
+          calls += 1;
+          const error = new Error('reset') as Error & { code: string };
+          error.code = 'ECONNRESET';
+          throw error;
+        },
+        { sleep, baseDelayMs: 1, attempts: 2 },
+      ),
+    ).rejects.toThrow(/reset/);
+    expect(calls).toBe(2);
+
+    await expect(
+      withRetries(async () => {
+        throw new Error('permanent');
+      }, { attempts: 3, sleep }),
+    ).rejects.toThrow(/permanent/);
+    expect(sleep).toHaveBeenCalledTimes(1);
   });
 });
