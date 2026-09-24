@@ -28048,6 +28048,8 @@ var init_enums = __esm({
       "APPROACHING_BUDGET",
       "EXCEEDS_BUDGET",
       "HARD_BLOCK_THRESHOLD",
+      "DELTA_WARN",
+      "DELTA_BLOCK",
       "SAVINGS",
       "NEW_SPEND",
       "HIGH_CONCENTRATION",
@@ -67259,6 +67261,8 @@ var GuardianConfigSchema = external_exports.object({
   window_end: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   warn_utilization: external_exports.number().min(0).max(10).optional(),
   block_utilization: external_exports.number().min(0).max(10).optional(),
+  warn_delta_pct: external_exports.number().min(0).max(100).optional(),
+  block_delta_pct: external_exports.number().min(0).max(100).optional(),
   budget_scope: external_exports.enum(BUDGET_SCOPES).optional(),
   enforce_block_threshold: external_exports.boolean().optional(),
   allow_unpriced: external_exports.boolean().optional(),
@@ -68680,6 +68684,12 @@ function overBlockThreshold(report) {
   if (report.budget_monthly === 0) return report.scope_monthly > 0;
   return report.scope_monthly >= report.budget_monthly * report.block_utilization;
 }
+function deltaRatio(report) {
+  if (!report.baseline_known || report.baseline_monthly == null) return null;
+  const baseline = Math.abs(report.baseline_monthly);
+  if (baseline === 0) return report.delta_monthly === 0 ? 0 : null;
+  return report.delta_monthly / baseline;
+}
 function withDecision(decision, next, report, reasons) {
   const reason_codes = [...reasons].slice(0, 24);
   return {
@@ -68726,6 +68736,16 @@ function applyCostPolicy(decision, report, options) {
       reasons.add("HARD_BLOCK_THRESHOLD");
       reasons.add("EXCEEDS_BUDGET");
       current = withDecision(current, "block", report, reasons);
+    }
+    const ratio = deltaRatio(report);
+    if (ratio != null) {
+      if (options.blockDeltaPct != null && ratio >= options.blockDeltaPct && (current.decision === "approve" || current.decision === "warn")) {
+        reasons.add("DELTA_BLOCK");
+        current = withDecision(current, "block", report, reasons);
+      } else if (options.warnDeltaPct != null && ratio >= options.warnDeltaPct && current.decision === "approve") {
+        reasons.add("DELTA_WARN");
+        current = withDecision(current, "warn", report, reasons);
+      }
     }
     if (current.confidence < options.minConfidence) {
       reasons.add("LOW_CONFIDENCE");
@@ -83928,7 +83948,9 @@ async function runCostGuardian(params) {
     allowPartial: params.allowPartial,
     allowMissingBaseline: params.allowMissingBaseline,
     failOnBlock: params.failOnBlock,
-    failOnManualReview: params.failOnManualReview
+    failOnManualReview: params.failOnManualReview,
+    warnDeltaPct: params.warnDeltaPct,
+    blockDeltaPct: params.blockDeltaPct
   });
   const effects = effectsFor(outcome, {
     comment: params.commentOnGithub && !params.dryRun,
@@ -84159,6 +84181,14 @@ async function main() {
     ),
     failOnBlock: pickBoolean(core.getInput("fail_on_block"), config2.fail_on_block, true),
     failOnManualReview: pickBoolean(core.getInput("fail_on_manual_review"), config2.fail_on_manual_review, false),
+    warnDeltaPct: (() => {
+      const raw = pickString(core.getInput("warn_delta_pct"), config2.warn_delta_pct?.toString());
+      return raw == null || raw === "" ? null : Number(raw);
+    })(),
+    blockDeltaPct: (() => {
+      const raw = pickString(core.getInput("block_delta_pct"), config2.block_delta_pct?.toString());
+      return raw == null || raw === "" ? null : Number(raw);
+    })(),
     jevProvider,
     jevEndpoint: pickString(core.getInput("jev_endpoint"), config2.jev_endpoint),
     jevModel: pickString(core.getInput("jev_model"), config2.jev_model),

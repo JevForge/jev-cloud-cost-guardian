@@ -248,6 +248,14 @@ async function main(): Promise<void> {
     ),
     failOnBlock: pickBoolean(core.getInput('fail_on_block'), config.fail_on_block, true),
     failOnManualReview: pickBoolean(core.getInput('fail_on_manual_review'), config.fail_on_manual_review, false),
+    warnDeltaPct: (() => {
+      const raw = pickString(core.getInput('warn_delta_pct'), config.warn_delta_pct?.toString());
+      return raw == null || raw === '' ? null : Number(raw);
+    })(),
+    blockDeltaPct: (() => {
+      const raw = pickString(core.getInput('block_delta_pct'), config.block_delta_pct?.toString());
+      return raw == null || raw === '' ? null : Number(raw);
+    })(),
     jevProvider,
     jevEndpoint: pickString(core.getInput('jev_endpoint'), config.jev_endpoint),
     jevModel: pickString(core.getInput('jev_model'), config.jev_model),

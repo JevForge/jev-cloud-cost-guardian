@@ -75,6 +75,17 @@ describe('deterministic policy', () => {
     expect(outcome.decision.reason_codes).toContain('COST_VISIBILITY_ENFORCED');
   });
 
+  it('tightens on delta percent thresholds when baseline is known', () => {
+    const decision = normalizeAnswer({ decision: 'approve', confidence: 0.95, provisional: false }, within);
+    const warned = applyCostPolicy(decision, within, { ...policyDefaults, warnDeltaPct: 0.1 });
+    expect(warned.decision.decision).toBe('warn');
+    expect(warned.decision.reason_codes).toContain('DELTA_WARN');
+
+    const blocked = applyCostPolicy(decision, within, { ...policyDefaults, blockDeltaPct: 0.15 });
+    expect(blocked.decision.decision).toBe('block');
+    expect(blocked.decision.reason_codes).toContain('DELTA_BLOCK');
+  });
+
   it('limits effects to outputs, summary, comments, and workflow failure', async () => {
     const decision = normalizeAnswer({ decision: 'warn', confidence: 0.9, provisional: false }, within);
     const outcome = applyCostPolicy(decision, within, { ...policyDefaults, failOnBlock: false });
