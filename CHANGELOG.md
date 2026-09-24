@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+
+* `include_resources` / `exclude_resources` globs (address, resource_type, or service). Filtered lines remain in findings with `RESOURCE_EXCLUDED` and do not affect budget totals.
+
 ## [0.6.0]
 
 ### Changed

@@ -14,6 +14,7 @@ import { parseKubecostText, parseUnitPrices } from './kubernetes.js';
 import { parseNormalizedDocument } from './normalized.js';
 import { parsePricingCatalog, parseTerraformPlanText, type PricingCatalog } from './terraform.js';
 import { resolveBudget, type BudgetRule } from './budgets.js';
+import { applyResourceFilters } from './filters.js';
 import type { CollectResult } from './types.js';
 
 export interface LoadSourcesRequest {
@@ -32,6 +33,8 @@ export interface LoadSourcesRequest {
   estimatesDocument?: unknown;
   baselinePath?: string;
   requireBaseline?: boolean;
+  includeResources?: string[];
+  excludeResources?: string[];
   infracostPath?: string;
   terraformPlanPath?: string;
   pricingCatalogPath?: string;
@@ -209,8 +212,18 @@ export async function loadCostReport(request: LoadSourcesRequest): Promise<CostR
     );
   }
 
-  const lines: CostLine[] = results.flatMap(result => result.lines);
+  const lines: CostLine[] = applyResourceFilters(
+    results.flatMap(result => result.lines),
+    {
+      include: request.includeResources,
+      exclude: request.excludeResources,
+    },
+  );
   const warnings = results.flatMap(result => result.warnings);
+  const excluded = lines.filter(line => line.detail_code === 'RESOURCE_EXCLUDED').length;
+  if (excluded) {
+    warnings.push(`${excluded} cost line(s) excluded from budget totals via include/exclude filters (still visible in findings).`);
+  }
   if (!lines.length) {
     throw new Error('No cost sources were configured. Pass estimates, a plan, or a billing connector.');
   }
