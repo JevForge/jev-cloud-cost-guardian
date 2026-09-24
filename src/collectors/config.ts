@@ -34,6 +34,8 @@ export const GuardianConfigSchema = z
     allow_missing_baseline: z.boolean().optional(),
     normalize_to_monthly: z.boolean().optional(),
     comment_on_github: z.boolean().optional(),
+    apply_labels: z.boolean().optional(),
+    create_check_run: z.boolean().optional(),
     redact_resource_names: z.boolean().optional(),
     fail_on_block: z.boolean().optional(),
     fail_on_manual_review: z.boolean().optional(),

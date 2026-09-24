@@ -78,7 +78,7 @@ describe('deterministic policy', () => {
   it('limits effects to outputs, summary, comments, and workflow failure', async () => {
     const decision = normalizeAnswer({ decision: 'warn', confidence: 0.9, provisional: false }, within);
     const outcome = applyCostPolicy(decision, within, { ...policyDefaults, failOnBlock: false });
-    expect(effectsFor(outcome, true).every(effect =>
+    expect(effectsFor(outcome, { comment: true, checkRun: false, labels: false }).every(effect =>
       ['set-outputs', 'write-summary', 'pull-request-comment', 'fail-workflow'].includes(effect),
     )).toBe(true);
     const markdown = renderSummaryMarkdown(outcome.decision);

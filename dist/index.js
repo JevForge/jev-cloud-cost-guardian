@@ -67207,6 +67207,8 @@ var GuardianConfigSchema = external_exports.object({
   allow_missing_baseline: external_exports.boolean().optional(),
   normalize_to_monthly: external_exports.boolean().optional(),
   comment_on_github: external_exports.boolean().optional(),
+  apply_labels: external_exports.boolean().optional(),
+  create_check_run: external_exports.boolean().optional(),
   redact_resource_names: external_exports.boolean().optional(),
   fail_on_block: external_exports.boolean().optional(),
   fail_on_manual_review: external_exports.boolean().optional(),
@@ -68500,9 +68502,11 @@ function applyCostPolicy(decision, report, options) {
 // src/executors/effects.ts
 init_sanitize();
 var COMMENT_MARKER = "<!-- jev-cloud-cost-guardian -->";
-function effectsFor(outcome, comment) {
+function effectsFor(outcome, options) {
   const effects = ["set-outputs", "write-summary"];
-  if (comment) effects.push("pull-request-comment");
+  if (options.comment) effects.push("pull-request-comment");
+  if (options.checkRun) effects.push("check-run");
+  if (options.labels) effects.push("apply-labels");
   if (outcome.status === "fail") effects.push("fail-workflow");
   return effects;
 }
@@ -68555,6 +68559,72 @@ async function maybePostComment(enabled, dryRun, decision, client) {
   }
   await client.createComment(body);
   return "posted";
+}
+
+// src/executors/github-status.ts
+var COST_DECISION_LABEL_PREFIX = "jev:cost:decision:";
+var COST_REVIEW_LABEL = "jev:cost:review";
+function decisionLabel(decision) {
+  return `${COST_DECISION_LABEL_PREFIX}${decision}`;
+}
+function desiredLabels(decision) {
+  const labels = [decisionLabel(decision.decision)];
+  if (decision.decision === "manual-review") labels.push(COST_REVIEW_LABEL);
+  return labels;
+}
+function isManagedCostLabel(name25) {
+  return name25.startsWith(COST_DECISION_LABEL_PREFIX) || name25 === COST_REVIEW_LABEL;
+}
+async function applyCostLabels(enabled, dryRun, decision, client) {
+  if (!enabled) return "skipped";
+  if (dryRun || !client) return "dry-run";
+  const current = await client.listLabels();
+  const preserved = current.filter((name25) => !isManagedCostLabel(name25));
+  const wanted = desiredLabels(decision);
+  const next = [.../* @__PURE__ */ new Set([...preserved, ...wanted])];
+  for (const name25 of wanted) {
+    await client.ensureLabel(name25);
+  }
+  await client.setLabels(next);
+  return "applied";
+}
+function checkConclusion(outcome) {
+  if (outcome.status === "ok") return "success";
+  if (outcome.status === "fail") return "failure";
+  return "neutral";
+}
+function buildCheckSummary(outcome) {
+  const d5 = outcome.decision;
+  return [
+    "### JEV Cloud Cost Guardian",
+    "",
+    "| Field | Value |",
+    "| --- | --- |",
+    `| Decision | \`${d5.decision}\` |`,
+    `| Confidence | ${d5.confidence.toFixed(3)} |`,
+    `| Policy | \`${outcome.status}\` |`,
+    `| Projected monthly | \`${d5.projected_monthly == null ? "unknown" : d5.projected_monthly.toFixed(2)}\` |`,
+    `| Delta monthly | \`${d5.delta_monthly.toFixed(2)}\` |`,
+    `| Budget monthly | \`${d5.budget_monthly.toFixed(2)}\` |`,
+    `| Utilization | \`${d5.utilization == null ? "n/a" : d5.utilization.toFixed(4)}\` |`,
+    `| Unpriced | \`${d5.unpriced_count}\` |`,
+    `| Reason codes | ${d5.reason_codes.map((code) => `\`${code}\``).join(", ")} |`,
+    "",
+    d5.explanation || "_No explanation._"
+  ].join("\n");
+}
+async function maybeCreateCheckRun(enabled, dryRun, headSha, outcome, client) {
+  if (!enabled) return "skipped";
+  if (!headSha) return "skipped";
+  if (dryRun || !client) return "dry-run";
+  await client.createCheckRun({
+    name: "JEV Cloud Cost Guardian",
+    headSha,
+    conclusion: checkConclusion(outcome),
+    title: outcome.decision.decision,
+    summary: buildCheckSummary(outcome)
+  });
+  return "created";
 }
 
 // node_modules/@ai-sdk/provider/dist/index.js
@@ -83593,7 +83663,11 @@ async function runCostGuardian(params) {
     failOnBlock: params.failOnBlock,
     failOnManualReview: params.failOnManualReview
   });
-  const effects = effectsFor(outcome, params.commentOnGithub && !params.dryRun);
+  const effects = effectsFor(outcome, {
+    comment: params.commentOnGithub && !params.dryRun,
+    checkRun: params.createCheckRun && !params.dryRun && Boolean(params.headSha),
+    labels: params.applyLabels && !params.dryRun
+  });
   const markdown = renderSummaryMarkdown(outcome.decision);
   const commentStatus = await maybePostComment(
     params.commentOnGithub,
@@ -83601,7 +83675,20 @@ async function runCostGuardian(params) {
     outcome.decision,
     params.commentClient ?? null
   );
-  return { outcome, markdown, commentStatus, effects };
+  const labelStatus = await applyCostLabels(
+    params.applyLabels,
+    params.dryRun,
+    outcome.decision,
+    params.labelClient ?? null
+  );
+  const checkRunStatus = await maybeCreateCheckRun(
+    params.createCheckRun,
+    params.dryRun,
+    params.headSha ?? null,
+    outcome,
+    params.checkRunClient ?? null
+  );
+  return { outcome, markdown, commentStatus, labelStatus, checkRunStatus, effects };
 }
 
 // src/index.ts
@@ -83698,12 +83785,14 @@ async function main() {
     }
   });
   const commentOnGithub = pickBoolean(core.getInput("comment_on_github"), config2.comment_on_github, false);
+  const applyLabels = pickBoolean(core.getInput("apply_labels"), config2.apply_labels, false);
+  const createCheckRun = pickBoolean(core.getInput("create_check_run"), config2.create_check_run, true);
   const dryRun = pickBoolean(core.getInput("dry_run"), void 0, false);
   const token = core.getInput("github_token") || process.env.GITHUB_TOKEN;
   const issueNumber = github.context.payload.pull_request?.number ?? github.context.issue?.number;
-  const commentClient = commentOnGithub && !dryRun && token && issueNumber ? {
+  const octokit = token ? github.getOctokit(token) : null;
+  const commentClient = commentOnGithub && !dryRun && octokit && issueNumber ? {
     async listComments() {
-      const octokit = github.getOctokit(token);
       const comments = await octokit.rest.issues.listComments({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
@@ -83713,7 +83802,6 @@ async function main() {
       return comments.data.map((comment) => ({ id: comment.id, body: comment.body ?? "" }));
     },
     async createComment(body) {
-      const octokit = github.getOctokit(token);
       await octokit.rest.issues.createComment({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
@@ -83722,12 +83810,60 @@ async function main() {
       });
     },
     async updateComment(id, body) {
-      const octokit = github.getOctokit(token);
       await octokit.rest.issues.updateComment({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
         comment_id: id,
         body
+      });
+    }
+  } : null;
+  const labelClient = applyLabels && !dryRun && octokit && issueNumber ? {
+    async listLabels() {
+      const issue2 = await octokit.rest.issues.get({
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        issue_number: issueNumber
+      });
+      return (issue2.data.labels ?? []).map((label) => typeof label === "string" ? label : label.name).filter((name25) => typeof name25 === "string");
+    },
+    async ensureLabel(name25) {
+      try {
+        await octokit.rest.issues.createLabel({
+          owner: github.context.repo.owner,
+          repo: github.context.repo.repo,
+          name: name25,
+          color: "1D76DB",
+          description: "Managed by JEV Cloud Cost Guardian"
+        });
+      } catch (error2) {
+        const status = error2 && typeof error2 === "object" && "status" in error2 ? Number(error2.status) : void 0;
+        if (status !== 422) throw error2;
+      }
+    },
+    async setLabels(next) {
+      await octokit.rest.issues.setLabels({
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        issue_number: issueNumber,
+        labels: next
+      });
+    }
+  } : null;
+  const headSha = github.context.payload.pull_request?.head?.sha ?? github.context.sha ?? null;
+  const checkRunClient = octokit ? {
+    async createCheckRun(input) {
+      await octokit.rest.checks.create({
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        name: input.name,
+        head_sha: input.headSha,
+        status: "completed",
+        conclusion: input.conclusion,
+        output: {
+          title: input.title,
+          summary: input.summary
+        }
       });
     }
   } : null;
@@ -83752,8 +83888,13 @@ async function main() {
     apiKey: resolveApiKey(jevProvider),
     redactResourceNames: pickBoolean(core.getInput("redact_resource_names"), config2.redact_resource_names, true),
     commentOnGithub,
+    applyLabels,
+    createCheckRun,
     dryRun,
-    commentClient
+    headSha,
+    commentClient,
+    labelClient,
+    checkRunClient
   });
   await applyOutcome(
     {
@@ -83769,6 +83910,8 @@ async function main() {
     result.markdown
   );
   core.info(`${LOG} Comment: ${result.commentStatus}`);
+  core.info(`${LOG} Labels: ${result.labelStatus}`);
+  core.info(`${LOG} Check run: ${result.checkRunStatus}`);
   core.info(`${LOG} Effects: ${result.effects.join(", ")}`);
 }
 main().catch((error2) => {

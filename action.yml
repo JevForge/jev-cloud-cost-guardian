@@ -156,8 +156,16 @@ inputs:
     description: Post or update a pull request comment. Requires pull-requests: write.
     required: false
     default: 'false'
+  apply_labels:
+    description: Apply managed jev:cost:* labels on the Issue/PR. Requires pull-requests: write.
+    required: false
+    default: 'false'
+  create_check_run:
+    description: Create a completed Check Run for the cost gate. Requires checks: write.
+    required: false
+    default: 'true'
   dry_run:
-    description: Evaluate and emit outputs, but skip the pull request comment.
+    description: Evaluate and emit outputs, but skip comment, labels, and check run writes.
     required: false
     default: 'false'
   github_token:
